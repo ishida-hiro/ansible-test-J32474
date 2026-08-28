@@ -586,6 +586,8 @@ make wincheck           # Ansible 実行サーバから WinRM 疎通を確認
 | Windows VM の apply が `"patch_mode" must always be set to "AutomaticByPlatform" when "source_image_reference" points to a hotpatch enabled image` | `azure-edition` 系イメージはホットパッチ対応のため `patch_mode` の明示が必要 | 既定で `windows_patch_mode = "AutomaticByPlatform"` を設定済み。ホットパッチ非対応イメージに変更した場合のみ `AutomaticByOS` / `Manual` も指定できる |
 | Run Command が `VMExtensionProvisioningError` で失敗し、詳細に `The string is missing the terminator: '.` が出る | `bootstrap_winrm.ps1` に非 ASCII 文字（日本語）が含まれている。Run Command は BOM 無しでファイル化するため PowerShell 5.1 が ANSI として読み、文字化けして構文エラーになる | 同スクリプトは **ASCII のみ**で記述する（日本語の説明はドキュメント側に置く）。plan 時に precondition で検出される。確認: `grep -n -P '[^\x00-\x7F]' terraform/scripts/bootstrap_winrm.ps1` |
 | Run Command が失敗した状態で残り、再 apply でも同じエラーになる | 拡張機能が失敗状態のまま VM に残っている | Azure Portal の VM → 「実行コマンド」で `winrm-bootstrap` を削除してから再 apply する |
+| `ParentResourceNotFound: ... the parent resource '.../virtualMachines/vm-...' could not be found` | Azure Portal 等でリソースを手動削除した後、**削除前に作られた run** を apply している（state が古い前提のまま） | **必ず新しい run を開始する**（`Actions → Start new run`）。refresh が走って削除を検知し、plan に再作成が含まれる |
+| VM 再作成の apply が `A disk with name osdisk-... already exists` | Portal から VM だけ削除したため OS ディスクが孤立して残っている | Azure Portal の「ディスク」で `osdisk-pickles-verify-windows` を削除してから再 apply する |
 | Public IP の apply が `DomainNameLabel ... is already taken` | 同じリージョンで DNS ラベルが重複している | `prefix` / `env` を変えるか、`windows_domain_name_label` を明示指定する |
 | SSH がタイムアウトする | 接続元 IP が NSG 許可範囲外 | `curl -s https://ifconfig.me` で現在の IP を確認し変数を更新して apply |
 | SSH が `Permission denied (publickey)` | 登録した公開鍵と手元の秘密鍵が不一致 | `ssh -i ~/.ssh/id_ed25519 azureuser@<FQDN>` で鍵を明示する |
