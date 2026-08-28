@@ -583,6 +583,7 @@ make wincheck           # Ansible 実行サーバから WinRM 疎通を確認
 | Windows VM の apply が `The requested size ... is not available` | 指定リージョンで `windows_vm_size` が使えない | `az vm list-skus -l japaneast --size Standard_B --output table` で利用可能なサイズを確認して変更する |
 | Windows VM の apply が `The platform image ... is not available` | `windows_source_image` の SKU がサブスクリプションで使えない | `az vm image list --publisher MicrosoftWindowsServer --offer WindowsServer --all -o table` で確認し、`2022-datacenter-azure-edition` 等に変更する |
 | Public IP の apply が `DomainNameLabelReserved: ... is invalid. The name itself or part of the name is a reserved word such as a trademark` | DNS ラベルに `windows` などの商標語が含まれている | 既定では `<prefix>-<env>-win-<ランダム>` に短縮済み。独自ラベルを使う場合は `windows_domain_name_label` に商標語（windows / microsoft / azure / xbox 等）を含めない値を指定する |
+| Windows VM の apply が `"patch_mode" must always be set to "AutomaticByPlatform" when "source_image_reference" points to a hotpatch enabled image` | `azure-edition` 系イメージはホットパッチ対応のため `patch_mode` の明示が必要 | 既定で `windows_patch_mode = "AutomaticByPlatform"` を設定済み。ホットパッチ非対応イメージに変更した場合のみ `AutomaticByOS` / `Manual` も指定できる |
 | Public IP の apply が `DomainNameLabel ... is already taken` | 同じリージョンで DNS ラベルが重複している | `prefix` / `env` を変えるか、`windows_domain_name_label` を明示指定する |
 | SSH がタイムアウトする | 接続元 IP が NSG 許可範囲外 | `curl -s https://ifconfig.me` で現在の IP を確認し変数を更新して apply |
 | SSH が `Permission denied (publickey)` | 登録した公開鍵と手元の秘密鍵が不一致 | `ssh -i ~/.ssh/id_ed25519 azureuser@<FQDN>` で鍵を明示する |

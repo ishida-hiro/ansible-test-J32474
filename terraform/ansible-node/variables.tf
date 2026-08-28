@@ -352,6 +352,34 @@ variable "windows_source_image" {
   }
 }
 
+variable "windows_patch_mode" {
+  description = <<-EOT
+    Windows 更新プログラムの適用方式（Azure プラットフォーム側の設定）。
+    既定の "azure-edition" イメージはホットパッチ対応のため、
+    "AutomaticByPlatform" 以外を指定すると apply が失敗する。
+    ホットパッチ非対応のイメージ（例: 2022-datacenter-g2）に変更した場合は
+    "Manual" / "AutomaticByOS" も指定できる。
+  EOT
+  type        = string
+  default     = "AutomaticByPlatform"
+
+  validation {
+    condition     = contains(["AutomaticByPlatform", "AutomaticByOS", "Manual"], var.windows_patch_mode)
+    error_message = "windows_patch_mode は AutomaticByPlatform / AutomaticByOS / Manual のいずれかで指定してください。"
+  }
+}
+
+variable "windows_hotpatching_enabled" {
+  description = <<-EOT
+    ホットパッチ（再起動なしでの更新適用）を有効にするか。
+    有効にできるのは azure-edition 系イメージかつ
+    windows_patch_mode = "AutomaticByPlatform" の場合のみ。
+    検証環境では挙動を単純にするため既定で無効にしている。
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "windows_os_disk_size_gb" {
   description = "Windows の OS ディスクサイズ(GB)。イメージ既定の 127GB 以上にすること"
   type        = number

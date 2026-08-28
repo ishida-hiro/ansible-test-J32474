@@ -227,6 +227,17 @@ resource "azurerm_windows_virtual_machine" "this" {
   admin_username = var.windows_admin_username
   admin_password = local.windows_admin_password
 
+  # 更新プログラムの適用方式。
+  #   Windows Server の "azure-edition" 系イメージはホットパッチ対応のため、
+  #   patch_mode = "AutomaticByPlatform" を明示しないと apply が失敗する
+  #   （"patch_mode" must always be set to "AutomaticByPlatform"
+  #     when "source_image_reference" points to a hotpatch enabled image）。
+  #   ※Ansible 側では 1.14 に従いローカル GPO の自動更新を無効化するが、
+  #     ここは Azure プラットフォーム側の設定であり別物。
+  patch_mode            = var.windows_patch_mode
+  patch_assessment_mode = var.windows_patch_mode == "AutomaticByPlatform" ? "AutomaticByPlatform" : "ImageDefault"
+  hotpatching_enabled   = var.windows_hotpatching_enabled
+
   os_disk {
     name                 = "osdisk-${local.windows_base}"
     caching              = "ReadWrite"
