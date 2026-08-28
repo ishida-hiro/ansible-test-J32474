@@ -30,7 +30,7 @@ Ansible のコントロールノード（Playbook を実行する Linux サー�
 | 仮想ネットワーク | `vnet-pickles-verify-windows` | `10.91.0.0/16`。**Ansible 側とはピアリングしない** |
 | サブネット | `snet-pickles-verify-windows` | `10.91.1.0/24` |
 | ネットワークセキュリティグループ | `nsg-pickles-verify-windows` | RDP(3389) ← 運用端末 / WinRM(5986) ← Ansible 実行サーバの Public IP。他は明示的に拒否 |
-| パブリック IP | `pip-pickles-verify-windows` | Standard / Static / DNS ラベル付き |
+| パブリック IP | `pip-pickles-verify-windows` | Standard / Static / DNS ラベルは `pickles-verify-win-<ランダム>`（`windows` は Azure の予約語のため `win` に短縮） |
 | ネットワークインターフェイス | `nic-pickles-verify-windows` | NSG を関連付け |
 | 仮想マシン | `vm-pickles-verify-windows` | Windows Server 2025 Datacenter / Standard_B2s（2vCPU/4GB） |
 | マネージドディスク | `datadisk-pickles-verify-windows` | 32GB。Playbook の `data_disks`（`disk_number: 2` → `D:`）に対応 |

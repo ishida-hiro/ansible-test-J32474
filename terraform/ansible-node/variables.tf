@@ -401,6 +401,27 @@ variable "windows_subnet_address_prefixes" {
   default     = ["10.91.1.0/24"]
 }
 
+variable "windows_domain_name_label" {
+  description = <<-EOT
+    Windows サーバの Public IP に付与する DNS ラベル。
+    空の場合は <prefix>-<env>-win-<ランダム5文字> を自動生成する。
+
+    ※Azure は DNS ラベルに商標語を含むものを拒否する。
+      "windows" は予約語のため、リソース名と違いラベルでは "win" に短縮している
+      （そのまま使うと DomainNameLabelReserved で apply が失敗する）。
+      同様に microsoft / azure / xbox 等も使用できない。
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition = var.windows_domain_name_label == "" || can(
+      regex("^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])?$", var.windows_domain_name_label)
+    )
+    error_message = "windows_domain_name_label は英小文字・数字・ハイフンの 3〜63 文字（先頭末尾は英数字）で指定してください。"
+  }
+}
+
 variable "allowed_rdp_source_addresses" {
   description = <<-EOT
     Windows サーバへの RDP(3389) を許可する送信元 CIDR のリスト。

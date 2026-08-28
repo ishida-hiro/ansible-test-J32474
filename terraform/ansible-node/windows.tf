@@ -22,6 +22,17 @@ locals {
 
   create_windows = var.create_windows_server
 
+  # Public IP の DNS ラベル。
+  # ★Azure は DNS ラベルに商標語を含められない★
+  #   "windows" は予約語のため、そのまま使うと apply が
+  #   DomainNameLabelReserved (400) で失敗する。
+  #   そのためリソース名（windows）とは別に "win" へ短縮したラベルを使う。
+  windows_dns_label = (
+    var.windows_domain_name_label != ""
+    ? var.windows_domain_name_label
+    : "${var.prefix}-${var.env}-win-${random_string.suffix.result}"
+  )
+
   # RDP の許可元。未指定なら SSH と同じ運用端末を使う
   rdp_source_addresses = (
     length(var.allowed_rdp_source_addresses) > 0
@@ -172,7 +183,7 @@ resource "azurerm_public_ip" "windows" {
   location            = azurerm_resource_group.this.location
   allocation_method   = "Static"
   sku                 = "Standard"
-  domain_name_label   = "${local.windows_base}-${random_string.suffix.result}"
+  domain_name_label   = local.windows_dns_label
   tags                = local.common_tags
 }
 

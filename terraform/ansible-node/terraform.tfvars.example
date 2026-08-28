@@ -101,6 +101,11 @@ windows_data_disk_size_gb = 32
 windows_vnet_address_space      = ["10.91.0.0/16"]
 windows_subnet_address_prefixes = ["10.91.1.0/24"]
 
+# Public IP の DNS ラベル。空なら <prefix>-<env>-win-<ランダム5文字> を自動生成する。
+# ※Azure は商標語（windows / microsoft / azure / xbox 等）を含むラベルを拒否するため、
+#   リソース名と違い "win" に短縮している。
+# windows_domain_name_label = "pickles-verify-fs01"
+
 # RDP(3389) の許可元。空なら allowed_ssh_source_addresses と同じ値を使う。
 # allowed_rdp_source_addresses = ["203.0.113.10/32"]
 enable_rdp_rule = true
