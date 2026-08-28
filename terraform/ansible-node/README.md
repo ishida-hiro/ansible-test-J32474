@@ -22,9 +22,28 @@ Ansible のコントロールノード（Playbook を実行する Linux サー�
 | 仮想マシン | `vm-pickles-verify-ansible` | Ubuntu Server 24.04 LTS / Standard_B2s / SSH 鍵認証のみ |
 | 自動シャットダウン | — | 毎日 21:00 (JST)。`enable_auto_shutdown = false` で無効化 |
 
-> **VNet ピアリングは作成しません。** 構築時は Public IP 経由で Windows サーバへ接続します。
+さらに `create_windows_server = true`（既定）の場合、**構築対象の Windows サーバ一式**を
+同じリソースグループに作成します。
+
+| リソース | 名前（既定） | 備考 |
+| --- | --- | --- |
+| 仮想ネットワーク | `vnet-pickles-verify-windows` | `10.91.0.0/16`。**Ansible 側とはピアリングしない** |
+| サブネット | `snet-pickles-verify-windows` | `10.91.1.0/24` |
+| ネットワークセキュリティグループ | `nsg-pickles-verify-windows` | RDP(3389) ← 運用端末 / WinRM(5986) ← Ansible 実行サーバの Public IP。他は明示的に拒否 |
+| パブリック IP | `pip-pickles-verify-windows` | Standard / Static / DNS ラベル付き |
+| ネットワークインターフェイス | `nic-pickles-verify-windows` | NSG を関連付け |
+| 仮想マシン | `vm-pickles-verify-windows` | Windows Server 2025 Datacenter / Standard_B2s（2vCPU/4GB） |
+| マネージドディスク | `datadisk-pickles-verify-windows` | 32GB。Playbook の `data_disks`（`disk_number: 2` → `D:`）に対応 |
+| Run Command | `winrm-bootstrap` | `../scripts/bootstrap_winrm.ps1` を自動実行して WinRM(5986) を有効化 |
+| 自動シャットダウン | — | Ansible 実行サーバと同じ時刻 |
+
+> **VNet ピアリングは作成しません。** Ansible 実行サーバと Windows サーバは
+> 別々の VNet に置かれるため、両者の通信は必ず Public IP 経由（インターネット経由）になります。
+> これは「別環境にある Windows サーバを構築する」実運用の形を検証環境で再現するためです。
 > 詳細は [Windows サーバへの到達性](#windows-サーバへの到達性) を参照してください。
-> Windows サーバ側の NSG は [`terraform/windows-nsg`](../windows-nsg/README.md) で構成します。
+>
+> 別環境に**既にある** Windows サーバを対象にする場合は `create_windows_server = false` にし、
+> Windows 側の NSG は [`terraform/windows-nsg`](../windows-nsg/README.md) で構成します。
 
 ### タグ
 
@@ -104,6 +123,10 @@ az ad sp create-for-rbac \
 | `ARM_TENANT_ID` | サービスプリンシパルの `tenant` |
 | `ARM_SUBSCRIPTION_ID` | サブスクリプション ID |
 
+> ⚠ カテゴリは必ず **Environment variable**。Terraform variable 側に入れると
+> plan で `Warning: Value for undeclared variable "ARM_TENANT_ID"` が出て、
+> かつその値は Azure 認証に使われない（apply で認証エラーになる）。
+
 **Terraform variables**
 
 | キー | 値の例 | 必須 |
@@ -114,6 +137,20 @@ az ad sp create-for-rbac \
 | `env` | `verify` | |
 | `location` | `japaneast` | |
 | `vm_size` | `Standard_B2s` | |
+| `create_windows_server` | `true`（構築対象 Windows も同じワークスペースで作る） | |
+| `windows_vm_size` | `Standard_B2s` | |
+| `windows_admin_password` | `<12文字以上>`（設定は任意） | |
+
+> `windows_admin_password` は**未設定でかまいません**。空の場合は自動生成され、
+> 出力 `windows_admin_password_generated` から読めます
+> （検証環境向けに、あえてマスクしていません）。
+> その値を `inventory/group_vars/all/vault.yml` の
+> `vault_local_admin_password` に設定してください。
+> ユーザ名も `windows_admin_username`（既定 `picklesadmin`）と
+> `vault_local_admin_user` を揃えます。
+>
+> 値をマスクしたい場合のみ、**Sensitive な Terraform variable として明示指定**します
+> （その場合 `windows_admin_password_generated` は `null` になります）。
 
 自分のグローバル IP と公開鍵の確認:
 
@@ -124,7 +161,9 @@ cat ~/.ssh/id_ed25519.pub            # → ssh_public_key にこの 1 行をそ�
 
 > `allowed_ssh_source_addresses` はリスト型のため、変数登録時に
 > **HCL チェックボックスをオン**にして `["x.x.x.x/32"]` と入力してください。
-> オフのままだと文字列として扱われ型エラーになります。
+> 角かっことダブルクォートまで含めて入力する必要があります。
+> オフのままだと `list of string required`、
+> オンで `x.x.x.x/32` だけ入力すると `Invalid number literal` になります。
 >
 > `terraform.tfvars` は `.gitignore` 対象でリポジトリに含まれないため、
 > HCP 実行時は上記のワークスペース変数だけが使われます。
@@ -141,6 +180,8 @@ HCP の UI で plan 結果を確認し、**Confirm & Apply** を押します。
 ### A-5. 出力値を確認して接続する
 
 HCP ワークスペースの **Outputs** に `ssh_command` / `public_ip_address` / `fqdn` が表示されます。
+Windows サーバを作成した場合は `windows_public_ip_address` / `windows_fqdn` /
+`windows_winrm_check_command` も表示されます。
 
 ```bash
 ssh azureuser@<FQDN>
@@ -148,6 +189,17 @@ ssh azureuser@<FQDN>
 # 初期セットアップの完了確認（初回は 5〜10 分程度かかります）
 cloud-init status --wait
 cat /var/log/ansible-node-setup.done
+
+# Windows サーバへの WinRM 疎通確認（Ansible 実行サーバ上で実行）
+nc -vz <windows_public_ip_address> 5986
+```
+
+インベントリには Windows の **Public IP** を設定します。
+
+```yaml
+# inventory/test.yml
+Ansible-TEST-FS:
+  ansible_host: <windows_public_ip_address>
 ```
 
 ---
@@ -212,6 +264,21 @@ ansible-playbook playbooks/site.yml
 NSG で「必要な送信元 IP × 必要なポート」だけを許可します。
 **本モジュールは VNet ピアリングを作成しません。**
 
+### create_windows_server = true（既定）— Windows も同じワークスペースで作る
+
+Windows サーバは **別 VNet（10.91.0.0/16）** に作られ、ピアリングもしないため、
+Ansible 実行サーバからの通信は必ず Public IP 経由になります。
+NSG の許可はすべて構成内で相互参照され、IP を手で書き写す必要はありません。
+
+| 経路 | ポート | 許可元 | 設定箇所 |
+| --- | --- | --- | --- |
+| 運用端末 → Ansible 実行サーバ | 22/TCP | 運用端末のグローバル IP | `allowed_ssh_source_addresses` |
+| 運用端末 → Windows サーバ | 3389/TCP | 運用端末のグローバル IP | `allowed_rdp_source_addresses`（空なら SSH と同じ値） |
+| Ansible 実行サーバ → Windows サーバ | 5986/TCP | Ansible 実行サーバの Public IP | **自動**（`azurerm_public_ip.this` を参照） |
+| Ansible 実行サーバ → Windows サーバ（送信側の明示許可） | 5986/TCP | — | **自動**（`azurerm_public_ip.windows` を参照） |
+
+### create_windows_server = false — 別環境の既存 Windows を対象にする
+
 | 経路 | ポート | 許可元 | 設定箇所 |
 | --- | --- | --- | --- |
 | 運用端末 → Ansible 実行サーバ | 22/TCP | 運用端末のグローバル IP | 本モジュール `allowed_ssh_source_addresses` |
@@ -229,7 +296,8 @@ terraform output -raw ansible_node_source_cidr    # 例: 203.0.113.11/32
 
 ### 送信（アウトバウンド）について
 
-`windows_server_public_ips` に Windows サーバの Public IP を指定すると、
+本ワークスペースで Windows サーバを作成した場合、またはその Public IP を
+`windows_server_public_ips` に指定した場合、
 NSG に `Allow-WinRM-Outbound`（5986/TCP・優先度 100）が作成されます。
 
 Azure の既定で送信はインターネット向けに許可されているため、
@@ -255,8 +323,11 @@ cloud-init のパッケージ取得や `ansible-galaxy` を妨げないよう、
 # 全削除 → 再構築
 terraform destroy -auto-approve && terraform apply -auto-approve
 
-# VM だけ作り直す（ネットワーク・IP は維持）
+# Ansible 実行サーバの VM だけ作り直す（ネットワーク・IP は維持）
 terraform apply -replace=azurerm_linux_virtual_machine.this
+
+# Windows サーバの VM だけ作り直す（ネットワーク・IP は維持）
+terraform apply -replace='azurerm_windows_virtual_machine.this[0]'
 ```
 
 HCP Terraform の場合は、ワークスペースの **Settings → Destruction and Deletion** から
@@ -276,9 +347,27 @@ HCP Terraform の場合は、ワークスペースの **Settings → Destruction
 | `vm_size` | `Standard_B2s` | VM サイズ |
 | `existing_subnet_id` | `""` | 指定すると既存サブネットへ配置（VNet を作成しない） |
 | `create_public_ip` | `true` | パブリック IP を作成する |
-| `windows_server_public_ips` | `[]` | WinRM(5986) 送信を明示許可する Windows サーバの Public IP |
+| `windows_server_public_ips` | `[]` | 別環境の既存 Windows サーバの Public IP（WinRM 送信を明示許可） |
 | `enable_auto_shutdown` | `true` | 毎日自動シャットダウン（コスト対策） |
 | `owner_tag` | `TF-J32474` | 全リソースの `Owner` タグ。`tags` より優先される |
+
+### 構築対象 Windows サーバ（`windows.tf`）
+
+| 変数 | 既定値 | 説明 |
+| --- | --- | --- |
+| `create_windows_server` | `true` | Windows サーバ一式を本ワークスペースで作成する |
+| `windows_vm_size` | `Standard_B2s` | 検証用の小さめサイズ（2vCPU / 4GB） |
+| `windows_computer_name` | `Ansible-TEST-FS` | コンピュータ名（15 文字以内）。インベントリのホスト名と揃える |
+| `windows_admin_username` | `picklesadmin` | `vault_local_admin_user` と揃える |
+| `windows_admin_password` | `""`（自動生成） | `vault_local_admin_password` と揃える。空なら出力 `windows_admin_password_generated` から取得できる |
+| `windows_source_image` | Windows Server 2025 Datacenter Azure Edition | 設計書 No.7 の OS に合わせている |
+| `windows_os_disk_size_gb` | `128` | OS ディスク |
+| `windows_data_disk_size_gb` | `32` | `D:` 相当のデータディスク。`0` で作成しない |
+| `windows_vnet_address_space` | `["10.91.0.0/16"]` | Ansible 側（`10.90.0.0/16`）と重複しないこと |
+| `allowed_rdp_source_addresses` | `[]` | 空なら `allowed_ssh_source_addresses` と同じ値を使う |
+| `enable_rdp_rule` | `true` | 構築完了後に `false` にして 3389 を閉じられる |
+| `enable_winrm_bootstrap` | `true` | Run Command で `bootstrap_winrm.ps1` を自動実行する |
+| `windows_additional_inbound_rules` | `[]` | FTP など追加の受信許可（優先度 200 番台） |
 | `git_repository_url` | `""` | 指定すると起動時に Playbook を clone する（プライベートリポジトリでは失敗するため注意） |
 
 全変数は `variables.tf` を参照してください。

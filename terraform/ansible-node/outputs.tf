@@ -47,10 +47,12 @@ output "upload_playbook_command" {
 
 output "ansible_node_source_cidr" {
   description = <<-EOT
-    Windows サーバ側 NSG で WinRM(5986) の送信元として許可すべき CIDR。
-    terraform/windows-nsg の変数 ansible_node_public_ip にこの値を設定する。
+    Windows サーバ側 NSG で WinRM(5986) の送信元として許可している CIDR。
+    本ワークスペースで Windows サーバも作成する場合は自動で適用される。
+    別環境の既存 Windows に対して terraform/windows-nsg を使う場合は、
+    その変数 ansible_node_public_ip にこの値を設定する。
   EOT
-  value = var.create_public_ip ? "${azurerm_public_ip.this[0].ip_address}/32" : "${azurerm_network_interface.this.private_ip_address}/32"
+  value       = local.ansible_node_source_cidr
 }
 
 output "setup_status_command" {
@@ -66,4 +68,92 @@ output "applied_tags" {
 output "vnet_id" {
   description = "本モジュールが作成した VNet のリソース ID"
   value       = local.create_network ? azurerm_virtual_network.this[0].id : null
+}
+
+# ============================================================================
+# 構築対象 Windows サーバ
+# ============================================================================
+output "windows_vm_name" {
+  description = "Windows サーバの VM 名"
+  value       = local.create_windows ? azurerm_windows_virtual_machine.this[0].name : null
+}
+
+output "windows_computer_name" {
+  description = "Windows のコンピュータ名（インベントリのホスト名と揃える）"
+  value       = local.create_windows ? azurerm_windows_virtual_machine.this[0].computer_name : null
+}
+
+output "windows_public_ip_address" {
+  description = "Windows サーバのパブリック IP アドレス（Ansible はここへ接続する）"
+  value       = local.create_windows ? azurerm_public_ip.windows[0].ip_address : null
+}
+
+output "windows_fqdn" {
+  description = "Windows サーバのパブリック IP の FQDN"
+  value       = local.create_windows ? azurerm_public_ip.windows[0].fqdn : null
+}
+
+output "windows_private_ip_address" {
+  description = "Windows サーバのプライベート IP アドレス（別 VNet のため Ansible からは到達不可）"
+  value       = local.create_windows ? azurerm_network_interface.windows[0].private_ip_address : null
+}
+
+output "windows_admin_username" {
+  description = "Windows のローカル管理者ユーザ名（vault_local_admin_user と揃える）"
+  value       = local.create_windows ? var.windows_admin_username : null
+}
+
+output "windows_admin_password" {
+  description = <<-EOT
+    Windows のローカル管理者パスワード。
+    ローカル実行時の取得: terraform output -raw windows_admin_password
+    inventory/group_vars/all/vault.yml の vault_local_admin_password に設定する。
+  EOT
+  value       = local.create_windows ? local.windows_admin_password : null
+  sensitive   = true
+}
+
+output "windows_admin_password_generated" {
+  description = <<-EOT
+    自動生成したローカル管理者パスワード（windows_admin_password 未指定時のみ）。
+    HCP Terraform の Outputs 画面から読めるよう、あえてマスクしていない。
+
+    ★検証環境限定の措置★
+      Windows サーバの受信は NSG で運用端末 / Ansible 実行サーバの IP に
+      限定されているため、検証用途では許容している。
+      マスクしたい場合は変数 windows_admin_password を明示指定すること
+      （指定した場合、本出力は null になり、sensitive な
+        windows_admin_password 側だけが値を持つ）。
+  EOT
+  value = (
+    local.create_windows && var.windows_admin_password == ""
+    ? nonsensitive(try(random_password.windows_admin[0].result, ""))
+    : null
+  )
+}
+
+output "windows_rdp_command" {
+  description = "Windows サーバへの RDP 接続コマンド（Linux の xfreerdp の例）"
+  value = local.create_windows ? format(
+    "xfreerdp /v:%s /u:%s /cert:ignore",
+    azurerm_public_ip.windows[0].ip_address,
+    var.windows_admin_username,
+  ) : null
+}
+
+output "windows_winrm_check_command" {
+  description = "Ansible 実行サーバから WinRM(5986) の疎通を確認するコマンド"
+  value       = local.create_windows ? "nc -vz ${azurerm_public_ip.windows[0].ip_address} 5986" : null
+}
+
+output "windows_inventory_snippet" {
+  description = <<-EOT
+    inventory/test.yml の ansible_host に設定する値。
+    Ansible 実行サーバからは Public IP 経由で接続する。
+  EOT
+  value = local.create_windows ? format(
+    "%s:\n  ansible_host: %s",
+    azurerm_windows_virtual_machine.this[0].computer_name,
+    azurerm_public_ip.windows[0].ip_address,
+  ) : null
 }

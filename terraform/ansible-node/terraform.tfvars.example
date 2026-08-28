@@ -43,8 +43,10 @@ subnet_address_prefixes = ["10.90.1.0/24"]
 
 create_public_ip = true
 
-# 構築対象 Windows サーバの Public IP。ここへの WinRM(5986) 送信を明示的に許可する。
-# ※Windows 側の受信許可は terraform/windows-nsg で構成すること。
+# 別環境に既存の Windows サーバがある場合の Public IP。
+# ここへの WinRM(5986) 送信を明示的に許可する（受信側は terraform/windows-nsg で構成）。
+# ※本ワークスペースで Windows を作成する場合（create_windows_server = true）は
+#   その Public IP が自動で追加されるため、通常は指定不要。
 # windows_server_public_ips = ["203.0.113.20/32", "203.0.113.21/32"]
 
 # ---- 仮想マシン -------------------------------------------------------------
@@ -69,3 +71,39 @@ ssh_public_key_path = "~/.ssh/id_rsa.pub"
 enable_auto_shutdown   = true
 auto_shutdown_time     = "2100"
 auto_shutdown_timezone = "Tokyo Standard Time"
+
+# ---- 構築対象 Windows サーバ（同一ワークスペースで作成する） ----------------
+# Ansible 実行サーバとは別 VNet に配置し、Public IP 経由で接続する。
+create_windows_server = true
+
+windows_vm_size       = "Standard_B2s"     # 検証用途の小さめサイズ（2vCPU/4GB）
+windows_computer_name = "Ansible-TEST-FS"  # inventory/test.yml のホスト名と揃える
+
+# Ansible の接続ユーザ。inventory/group_vars/all/vault.yml の
+# vault_local_admin_user / vault_local_admin_password と一致させること。
+windows_admin_username = "picklesadmin"
+# 未指定なら自動生成される（terraform output windows_admin_password_generated で取得）
+# windows_admin_password = "<12文字以上・英大小/数字/記号のうち3種類以上>"
+
+# OS イメージ（既定: Windows Server 2025 Datacenter Azure Edition）
+# windows_source_image = {
+#   publisher = "MicrosoftWindowsServer"
+#   offer     = "WindowsServer"
+#   sku       = "2025-datacenter-azure-edition"
+#   version   = "latest"
+# }
+
+# ディスク（D: 相当のデータディスク。0 で作成しない）
+windows_os_disk_size_gb   = 128
+windows_data_disk_size_gb = 32
+
+# Windows 側ネットワーク（Ansible 側 10.90.0.0/16 と重複しないこと。ピアリングしない）
+windows_vnet_address_space      = ["10.91.0.0/16"]
+windows_subnet_address_prefixes = ["10.91.1.0/24"]
+
+# RDP(3389) の許可元。空なら allowed_ssh_source_addresses と同じ値を使う。
+# allowed_rdp_source_addresses = ["203.0.113.10/32"]
+enable_rdp_rule = true
+
+# bootstrap_winrm.ps1 を Run Command で自動実行し WinRM(5986) を有効化する
+enable_winrm_bootstrap = true

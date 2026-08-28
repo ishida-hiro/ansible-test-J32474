@@ -3,7 +3,7 @@
 | ディレクトリ / ファイル | 用途 |
 | --- | --- |
 | [`ansible-node/`](ansible-node/) | **Ansible 実行用サーバ（コントロールノード）を Azure に払い出す Terraform**。検証用に専用リソースグループへ閉じ込めており、`terraform destroy` で丸ごと作り直せる |
-| [`windows-nsg/`](windows-nsg/) | **構築対象 Windows サーバ用の NSG**。RDP(3389) を運用端末から、WinRM(5986) を Ansible 実行サーバからのみ許可する |
+| [`windows-nsg/`](windows-nsg/) | **別環境に既にある Windows サーバ用の NSG（単体構成）**。RDP(3389) を運用端末から、WinRM(5986) を Ansible 実行サーバからのみ許可する。検証用の Windows を `ansible-node/` で一緒に作る場合は不要 |
 | `scripts/bootstrap_winrm.ps1` | 構築対象の Windows サーバで WinRM over HTTPS(5986) を有効化するスクリプト。Custom Script Extension / RunCommand / RDP のいずれかで各サーバに 1 回実行する |
 
 ## 接続方式（構築時）
@@ -20,16 +20,17 @@ NSG で「必要な送信元 IP × 必要なポート」だけを許可します
        v                          +------------------------+
 +---------------------+  5986/TCP |  Windows サーバ         |
 | Ansible 実行サーバ   | ────────> |  （Public IP 付き）      |
-| （Public IP 付き）   |           |  windows-nsg            |
-|  ansible-node       |           +------------------------+
-+---------------------+
+| （Public IP 付き）   |           |  Windows 用 NSG         |
+| VNet 10.90.0.0/16   |           |  VNet 10.91.0.0/16      |
++---------------------+           +------------------------+
+        ピアリングしない ＝ 通信は必ず Public IP 経由
 ```
 
-| 経路 | ポート | 許可元 | 設定箇所 |
-| --- | --- | --- | --- |
-| 運用端末 → Ansible 実行サーバ | 22/TCP | 運用端末のグローバル IP | `ansible-node` の `allowed_ssh_source_addresses` |
-| 運用端末 → Windows サーバ | 3389/TCP | 運用端末のグローバル IP | `windows-nsg` の `allowed_rdp_source_addresses` |
-| Ansible 実行サーバ → Windows サーバ | 5986/TCP | Ansible 実行サーバの Public IP | `windows-nsg` の `ansible_node_public_ip` |
+| 経路 | ポート | 許可元 | 設定箇所（`ansible-node` で Windows も作る場合） | 設定箇所（既存 Windows に `windows-nsg` を当てる場合） |
+| --- | --- | --- | --- | --- |
+| 運用端末 → Ansible 実行サーバ | 22/TCP | 運用端末のグローバル IP | `allowed_ssh_source_addresses` | 同左 |
+| 運用端末 → Windows サーバ | 3389/TCP | 運用端末のグローバル IP | `allowed_rdp_source_addresses`（空なら SSH と同じ値） | `windows-nsg` の `allowed_rdp_source_addresses` |
+| Ansible 実行サーバ → Windows サーバ | 5986/TCP | Ansible 実行サーバの Public IP | **自動**（同一構成内で相互参照する） | `windows-nsg` の `ansible_node_public_ip` |
 
 いずれも `0.0.0.0/0` は variable の validation で拒否されます。
 
@@ -39,8 +40,29 @@ NSG で「必要な送信元 IP × 必要なポート」だけを許可します
 
 ## 実行順序
 
+### パターン 1: 検証用の Windows も一緒に作る（既定・推奨）
+
+`ansible-node/` の 1 ワークスペースだけで完結します。
+Windows サーバ・その NSG・専用 VNet・Public IP まで同じリソースグループに作られ、
+NSG の相互許可（Ansible の Public IP ⇔ Windows の Public IP）も自動で設定されます。
+
+```
+1. terraform/ansible-node   apply
+     → Ansible 実行サーバ + Windows サーバ + 両者の NSG を一括作成
+     → WinRM(5986) は Run Command で bootstrap_winrm.ps1 が自動実行され有効化済み
+2. terraform output windows_public_ip_address を inventory の ansible_host に設定
+3. Ansible 実行サーバから win_ping で疎通確認 → Playbook 実行
+```
+
+`windows-nsg/` は使いません。
+
+### パターン 2: 別環境に既にある Windows サーバを構築対象にする
+
+`ansible-node/` の変数を `create_windows_server = false` にします。
+
 ```
 1. terraform/ansible-node   apply   → Ansible 実行サーバと Public IP が確定
+     （create_windows_server = false / windows_server_public_ips に対象 IP を指定）
 2. Windows サーバ VM を作成（別構成 / 手動。Public IP を付与）
 3. terraform/windows-nsg    apply   → NSG 作成・Windows の NIC へ関連付け
 4. Windows サーバへ RDP → scripts/bootstrap_winrm.ps1 で WinRM を有効化
@@ -54,9 +76,11 @@ Windows サーバ**本体**の払い出しは本リポジトリのスコープ�
 に従って払い出す前提。設計書 1.4 / 1.5 の注記を参照）。
 **NSG のみ** `windows-nsg/` で管理します。
 
-Terraform で VM も払い出す場合は、`azurerm_virtual_machine_extension` の
-`CustomScriptExtension` から `scripts/bootstrap_winrm.ps1` を実行すると、
-そのまま Ansible で構築を開始できます。
+ただし **検証用の 1 台**（`inventory/test.yml` の `Ansible-TEST-FS` 相当）は
+`ansible-node/windows.tf` で払い出せるようにしています（`create_windows_server = true`）。
+WinRM の有効化も `azurerm_virtual_machine_run_command` から
+`scripts/bootstrap_winrm.ps1` が自動実行されるため、
+apply 完了後そのまま Ansible で構築を開始できます。
 
 ## 使い方
 

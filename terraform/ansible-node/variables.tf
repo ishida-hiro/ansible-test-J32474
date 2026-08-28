@@ -251,3 +251,210 @@ variable "auto_shutdown_timezone" {
   type        = string
   default     = "Tokyo Standard Time"
 }
+
+# ============================================================================
+# 構築対象 Windows サーバ（同一ワークスペースで作成する検証用サーバ）
+#   windows.tf を参照。Ansible 実行サーバとは別 VNet に配置し、
+#   Public IP 経由で接続する（別環境の Windows を構築する形を再現するため）。
+# ============================================================================
+variable "create_windows_server" {
+  description = <<-EOT
+    構築対象の Windows サーバ（VM / NSG / 別 VNet / Public IP）を
+    本ワークスペースで作成するか。
+    別環境に既存の Windows サーバがある場合は false にし、
+    windows_server_public_ips と terraform/windows-nsg を使う。
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "windows_vm_size" {
+  description = "Windows サーバの VM サイズ。検証用途のため小さめの既定値にしている（Standard_B2s = 2vCPU/4GB）"
+  type        = string
+  default     = "Standard_B2s"
+}
+
+variable "windows_computer_name" {
+  description = <<-EOT
+    Windows のコンピュータ名（NetBIOS 名。15 文字以内）。
+    inventory/test.yml の検証機ホスト名（Ansible-TEST-FS）に合わせている。
+  EOT
+  type        = string
+  default     = "Ansible-TEST-FS"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9-]{1,15}$", var.windows_computer_name))
+    error_message = "windows_computer_name は英数字とハイフンの 15 文字以内で指定してください。"
+  }
+}
+
+variable "windows_admin_username" {
+  description = <<-EOT
+    Windows のローカル管理者ユーザ名。
+    Ansible の接続ユーザ（inventory/group_vars/all/vault.yml の
+    vault_local_admin_user）と一致させること。
+  EOT
+  type        = string
+  default     = "picklesadmin"
+
+  validation {
+    condition = !contains(
+      ["administrator", "admin", "user", "user1", "test", "guest", "root", "server", "console"],
+      lower(var.windows_admin_username)
+    )
+    error_message = "windows_admin_username に Azure の予約語（administrator / admin / user / guest など）は指定できません。"
+  }
+}
+
+variable "windows_admin_password" {
+  description = <<-EOT
+    Windows のローカル管理者パスワード。
+    Ansible の vault_local_admin_password と一致させること。
+    検証環境では空のままでよい。空にすると自動生成し、
+    出力 windows_admin_password_generated から読める
+    （HCP Terraform の Outputs 画面で読めるよう、あえてマスクしていない）。
+    値をマスクしたい場合のみ、Sensitive な Terraform variable として明示指定する。
+    Azure の要件: 12〜123 文字 / 大文字・小文字・数字・記号のうち 3 種類以上。
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = var.windows_admin_password == "" || length(var.windows_admin_password) >= 12
+    error_message = "windows_admin_password は 12 文字以上で指定してください（Azure の要件）。"
+  }
+
+  validation {
+    condition     = length(var.windows_admin_password) <= 123
+    error_message = "windows_admin_password は 123 文字以内で指定してください（Azure の要件）。"
+  }
+}
+
+variable "windows_source_image" {
+  description = <<-EOT
+    Windows サーバの OS イメージ。既定は Windows Server 2025 Datacenter
+    （設計書「1.概要」No.7 ファイルサーバの OS に合わせている）。
+    確認コマンド:
+      az vm image list --publisher MicrosoftWindowsServer --offer WindowsServer --all -o table
+  EOT
+  type = object({
+    publisher = string
+    offer     = string
+    sku       = string
+    version   = string
+  })
+  default = {
+    publisher = "MicrosoftWindowsServer"
+    offer     = "WindowsServer"
+    sku       = "2025-datacenter-azure-edition"
+    version   = "latest"
+  }
+}
+
+variable "windows_os_disk_size_gb" {
+  description = "Windows の OS ディスクサイズ(GB)。イメージ既定の 127GB 以上にすること"
+  type        = number
+  default     = 128
+}
+
+variable "windows_os_disk_type" {
+  description = "Windows の OS ディスクの種類"
+  type        = string
+  default     = "StandardSSD_LRS"
+}
+
+variable "windows_data_disk_size_gb" {
+  description = <<-EOT
+    データディスク(D: 相当)のサイズ(GB)。0 にすると作成しない。
+    Playbook 側の data_disks（disk_number: 2 / drive_letter: D）に対応する。
+    設計書では 2048GB だが、検証用途のため既定は小さくしている。
+  EOT
+  type        = number
+  default     = 32
+
+  validation {
+    condition     = var.windows_data_disk_size_gb >= 0
+    error_message = "windows_data_disk_size_gb は 0 以上で指定してください。"
+  }
+}
+
+variable "windows_data_disk_type" {
+  description = "データディスクの種類"
+  type        = string
+  default     = "StandardSSD_LRS"
+}
+
+variable "windows_vnet_address_space" {
+  description = <<-EOT
+    Windows サーバ側 VNet のアドレス空間。
+    Ansible 実行サーバ側（vnet_address_space）と重複しないこと。
+    ※両者はピアリングしないため、通信は Public IP 経由になる。
+  EOT
+  type        = list(string)
+  default     = ["10.91.0.0/16"]
+}
+
+variable "windows_subnet_address_prefixes" {
+  description = "Windows サーバ側サブネットのアドレス範囲"
+  type        = list(string)
+  default     = ["10.91.1.0/24"]
+}
+
+variable "allowed_rdp_source_addresses" {
+  description = <<-EOT
+    Windows サーバへの RDP(3389) を許可する送信元 CIDR のリスト。
+    空の場合は allowed_ssh_source_addresses（運用端末）と同じ値を使う。
+    ※ 0.0.0.0/0 は指定できない。
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = length([
+      for c in var.allowed_rdp_source_addresses : c
+      if c == "0.0.0.0/0" || lower(c) == "internet" || lower(c) == "*"
+    ]) == 0
+    error_message = "0.0.0.0/0 / Internet / * は指定できません。運用端末のグローバル IP を指定してください。"
+  }
+}
+
+variable "enable_rdp_rule" {
+  description = "RDP(3389) の受信許可ルールを作成するか。構築完了後に false にして閉じることを想定"
+  type        = bool
+  default     = true
+}
+
+variable "enable_winrm_bootstrap" {
+  description = <<-EOT
+    terraform/scripts/bootstrap_winrm.ps1 を Run Command で自動実行し、
+    WinRM over HTTPS(5986) を有効化するか。
+    false にした場合は RDP でログオンして手動実行する必要がある。
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "windows_additional_inbound_rules" {
+  description = <<-EOT
+    Windows サーバ NSG に追加する受信許可ルール。優先度 200 番台に順に割り当てられる。
+    例）FTP を特定拠点にだけ開ける場合:
+      [{ name = "Allow-FTP", port = "21", source_addresses = ["203.0.113.30/32"] }]
+  EOT
+  type = list(object({
+    name             = string
+    port             = string
+    protocol         = optional(string, "Tcp")
+    source_addresses = list(string)
+    description      = optional(string, "")
+  }))
+  default = []
+
+  validation {
+    condition = length([
+      for r in var.windows_additional_inbound_rules : r
+      if length([for c in r.source_addresses : c if c == "0.0.0.0/0" || lower(c) == "internet" || lower(c) == "*"]) > 0
+    ]) == 0
+    error_message = "windows_additional_inbound_rules の source_addresses に 0.0.0.0/0 / Internet / * は指定できません。"
+  }
+}

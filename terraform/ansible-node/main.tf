@@ -24,6 +24,14 @@ locals {
     )
   )
 
+  # Windows サーバ側 NSG で WinRM(5986) の送信元として許可する CIDR。
+  # 別 VNet に置いた Windows とは Public IP 経由で通信するため、
+  # Public IP を作成している場合はそのアドレスを使う。
+  ansible_node_source_cidr = format(
+    "%s/32",
+    try(azurerm_public_ip.this[0].ip_address, azurerm_network_interface.this.private_ip_address),
+  )
+
   # Owner は var.tags で上書きされないよう最後に適用する
   common_tags = merge(
     {
