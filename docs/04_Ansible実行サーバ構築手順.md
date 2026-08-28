@@ -1,24 +1,23 @@
 # Ansible 実行用サーバ 構築手順（Terraform / HCP Terraform）
 
-Windows サーバを構築するための **Ansible コントロールノード（Linux VM）** を
-Azure 上に払い出す手順です。
+**Ansible コントロールノード（Linux VM）と、構築対象の Windows サーバを
+1 つの Terraform ワークスペースでまとめて払い出す手順**です。
 
 | 項目 | 内容 |
 | --- | --- |
-| 構成 | `terraform/ansible-node`（Ansible 実行サーバ） / `terraform/windows-nsg`（Windows 側 NSG） |
+| 構成 | `terraform/ansible-node` の 1 ワークスペースで、Ansible 実行サーバ・Windows サーバ・両者の NSG を一括作成 |
 | 実行方式 | HCP Terraform（VCS 駆動 / GitHub 連携） |
 | Git リポジトリ | `https://github.com/ishida-hiro/ansible-test-J32474.git` |
 | 接続方式 | **双方に Public IP を付与し、必要な送信元 IP × ポートのみ NSG で許可**（VNet ピアリングは使用しない） |
 | 作成先 | 専用リソースグループ `rg-pickles-verify-ansible`（destroy でまとめて削除可） |
 
 > ローカルの `terraform` コマンドで実行する場合は [付録 A](#付録-a-ローカルで実行する場合) を参照してください。
+> 別環境に**既にある** Windows サーバを構築対象にする場合は
+> [付録 C](#付録-c-別環境の既存-windows-サーバを対象にする場合) を参照してください。
 
 ---
 
 ## 0. 全体の流れ
-
-検証環境では **1 つのワークスペース（`ansible-node`）で Ansible 実行サーバと
-構築対象の Windows サーバの両方**を作成します（`create_windows_server = true`・既定）。
 
 ```
 [手元の端末]                    [GitHub]              [HCP Terraform]        [Azure]
@@ -34,24 +33,24 @@ Azure 上に払い出す手順です。
  7.  |                             |--- push で自動 plan -> |                   |
  8.  |                             |                   Confirm & Apply ------>  Ansible 実行サーバ
      |                             |                        |                +  Windows サーバ
-     |                             |                        |                +  両者の NSG を一括作成
-     |                             |                        |                   （WinRM も自動有効化）
- 9. SSH 接続 <--------------------------------------------------------------- |
-10. インベントリに Windows の Public IP を設定                                  |
-11. Ansible から win_ping で疎通確認                                            |
-12. Playbook を配置して実行         |                        |                   |
+     |                             |                        |                +  両者の NSG / VNet / Public IP
+     |                             |                        |                   （WinRM も自動で有効化）
+ 9. Outputs を確認（IP・パスワード）                                            |
+10. Ansible 実行サーバへ SSH <----------------------------------------------- |
+11. Playbook を配置し、インベントリと vault.yml を設定                          |
+12. win_ping で疎通確認 → Playbook 実行                                        |
 ```
 
-所要時間の目安: 事前準備 15 分 / apply 10 分 / cloud-init 完了まで 5〜10 分
+所要時間の目安: 事前準備 15 分 / apply 10〜15 分 / cloud-init 完了まで 5〜10 分
 
-> 別環境に**既にある** Windows サーバを構築対象にする場合は
-> `create_windows_server = false` にし、`terraform/windows-nsg` を別ワークスペースで
-> apply します（[9-B](#9-b-別環境の既存-windows-サーバを対象にする場合) を参照）。
+**Windows サーバへの WinRM 有効化まで Terraform が行う**ため、
+RDP でログオンして手作業をする必要はありません。
 
 ### 接続方式（構築時）
 
-構築時は **Ansible 実行サーバ・Windows サーバの双方に Public IP を付与**し、
-NSG で「必要な送信元 IP × 必要なポート」だけを許可します。
+Ansible 実行サーバと Windows サーバは**別々の VNet に置き、ピアリングもしません**。
+そのため両者の通信は必ず Public IP 経由（インターネット経由）になります。
+これは「別環境にある Windows サーバを構築する」実運用の形を検証環境で再現するためです。
 
 ```
                   3389/TCP (RDP)
@@ -65,17 +64,13 @@ NSG で「必要な送信元 IP × 必要なポート」だけを許可します
 | VNet 10.90.0.0/16   |           |  VNet 10.91.0.0/16        |
 +---------------------+           +--------------------------+
           └────── ピアリングしない ＝ 通信は必ず Public IP 経由 ──────┘
-                （別環境の Windows を構築する形を検証環境で再現する）
 ```
 
 | 経路 | ポート | 許可元 | 設定箇所 |
 | --- | --- | --- | --- |
 | 運用端末 → Ansible 実行サーバ | 22/TCP | 運用端末のグローバル IP | `allowed_ssh_source_addresses` |
 | 運用端末 → Windows サーバ | 3389/TCP | 運用端末のグローバル IP | `allowed_rdp_source_addresses`（空なら SSH と同じ値） |
-| Ansible 実行サーバ → Windows サーバ | 5986/TCP | Ansible 実行サーバの Public IP | **自動**（同一構成内で相互参照） |
-
-※ `create_windows_server = false` の場合、Windows 側の 3389 / 5986 は
-`terraform/windows-nsg` 側の変数で設定します。
+| Ansible 実行サーバ → Windows サーバ | 5986/TCP | Ansible 実行サーバの Public IP | **自動**（同一構成内で相互参照するため入力不要） |
 
 いずれも `0.0.0.0/0` は variable の validation で拒否されます。
 
@@ -105,7 +100,7 @@ NSG で「必要な送信元 IP × 必要なポート」だけを許可します
 
 ## 2. SSH 鍵を用意する
 
-VM へは**鍵認証のみ**で接続します（パスワード認証は無効）。
+Ansible 実行サーバへは**鍵認証のみ**で接続します（パスワード認証は無効）。
 
 ```bash
 # 鍵が無い場合のみ作成する
@@ -121,11 +116,14 @@ cat ~/.ssh/id_ed25519.pub
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ansible-node
 ```
 
+> Windows サーバへは RDP（パスワード認証）で接続します。
+> そのパスワードは Terraform が自動生成するため、事前準備は不要です（手順 6.3 / 8）。
+
 ---
 
 ## 3. 接続元グローバル IP を確認する
 
-NSG で **SSH(22) をこの IP からのみ許可**します。
+NSG で **SSH(22) と RDP(3389) をこの IP からのみ許可**します。
 
 ```bash
 curl -s https://ifconfig.me; echo
@@ -175,7 +173,7 @@ az ad sp create-for-rbac \
 ```bash
 cd /home/ubuntu/claude/ansible/ansible-windows-build
 
-git status                      # 初回コミットは作成済み
+git status
 git push -u origin main
 ```
 
@@ -189,7 +187,10 @@ git push -u origin main
 
 ---
 
-## 6. HCP Terraform のワークスペースを作成する（Ansible 実行サーバ）
+## 6. HCP Terraform のワークスペースを作成する
+
+**ワークスペースは 1 つだけ**です。ここで Ansible 実行サーバと Windows サーバの
+両方を管理します。
 
 ### 6.1 ワークスペース作成
 
@@ -238,6 +239,7 @@ git push -u origin main
 ### 6.3 Terraform variables
 
 同じ画面で **Terraform variable** として登録します。
+**必須は 2 件だけ**で、残りは既定値のままで動きます。
 
 | キー | 値の例 | HCL | 必須 |
 | --- | --- | --- | --- |
@@ -247,20 +249,26 @@ git push -u origin main
 | `env` | `verify` | | |
 | `location` | `japaneast` | | |
 | `vm_size` | `Standard_B2s` | | |
-| `windows_admin_password` | `<12文字以上のパスワード>`（未設定なら自動生成） | | |
-| `create_windows_server` | `true`（既定。既存 Windows を使う場合は `false`） | | |
-| `windows_vm_size` | `Standard_B2s` | | |
-| `windows_computer_name` | `Ansible-TEST-FS` | | |
-| `windows_admin_username` | `picklesadmin` | | |
-| `allowed_rdp_source_addresses` | `["203.0.113.10/32"]`（空なら SSH と同じ値） | ✅ **オン** | |
 
-> `windows_admin_password` は Ansible の接続パスワードになります。
-> **検証環境では未設定でかまいません。** 空の場合は自動生成され、
+Windows サーバ側は既定値のままで作成されます。変更したい場合のみ登録します。
+
+| キー | 既定値 | HCL | 説明 |
+| --- | --- | --- | --- |
+| `create_windows_server` | `true` | | Windows サーバ一式を作成する |
+| `windows_vm_size` | `Standard_B2s` | | 検証用の小さめサイズ（2vCPU / 4GB） |
+| `windows_computer_name` | `Ansible-TEST-FS` | | `inventory/test.yml` のホスト名と一致 |
+| `windows_admin_username` | `picklesadmin` | | `vault_local_admin_user` と揃える |
+| `windows_admin_password` | `""`（自動生成） | | 下の注記を参照 |
+| `windows_data_disk_size_gb` | `32` | | `D:` 相当のデータディスク |
+| `allowed_rdp_source_addresses` | `[]` | ✅ **オン** | 空なら SSH と同じ運用端末 IP を使う |
+| `enable_rdp_rule` | `true` | | 構築完了後に `false` にして 3389 を閉じられる |
+| `enable_winrm_bootstrap` | `true` | | WinRM を Run Command で自動有効化する |
+
+> **Windows のパスワードは設定しなくて構いません。**
+> `windows_admin_password` が空の場合、Terraform が自動生成し、
 > apply 後に出力 `windows_admin_password_generated` から読めます
 > （HCP の Outputs 画面で読めるよう、あえてマスクしていません）。
-> その値を `inventory/group_vars/all/vault.yml` の
-> `vault_local_admin_password` に設定してください
-> （ユーザ名も `windows_admin_username` = `vault_local_admin_user` = `picklesadmin`）。
+> その値を手順 11 で `vault_local_admin_password` に設定します。
 >
 > 値をマスクしたい場合のみ、**Sensitive をオンにして明示指定**します。
 > Azure の要件は 12〜123 文字・大文字/小文字/数字/記号のうち 3 種類以上です。
@@ -292,36 +300,119 @@ git push
 
 手動で流す場合は、ワークスペースの **Actions → Start new run** から実行します。
 
-1. **Plan** の結果を確認する（想定は **9 リソース程度の追加**）
+1. **Plan** の結果を確認する（既定値のままなら **28 リソース程度の追加**）
 2. 問題なければ **Confirm & Apply** を押す
 
-作成されるリソース:
+apply には 10〜15 分程度かかります（Windows VM の作成と WinRM 設定を含むため）。
 
-| リソース | 名前（既定） |
-| --- | --- |
-| リソースグループ | `rg-pickles-verify-ansible` |
-| 仮想ネットワーク / サブネット | `vnet-` / `snet-pickles-verify-ansible`（`10.90.0.0/16`） |
-| NSG（SSH のみ許可） | `nsg-pickles-verify-ansible` |
-| パブリック IP | `pip-pickles-verify-ansible` |
-| NIC | `nic-pickles-verify-ansible` |
-| 仮想マシン | `vm-pickles-verify-ansible`（Ubuntu 24.04 / Standard_B2s） |
-| 自動シャットダウン | 毎日 21:00 JST |
+### 作成されるリソース
+
+すべて 1 つのリソースグループ `rg-pickles-verify-ansible` に閉じ込められます。
+
+**Ansible 実行サーバ側**
+
+| リソース | 名前（既定） | 備考 |
+| --- | --- | --- |
+| リソースグループ | `rg-pickles-verify-ansible` | destroy でまとめて削除される |
+| 仮想ネットワーク / サブネット | `vnet-` / `snet-pickles-verify-ansible` | `10.90.0.0/16` |
+| NSG | `nsg-pickles-verify-ansible` | SSH(22) ← 運用端末 / WinRM(5986) 送信を明示許可 |
+| パブリック IP | `pip-pickles-verify-ansible` | Standard / Static / DNS ラベル付き |
+| NIC | `nic-pickles-verify-ansible` | |
+| 仮想マシン | `vm-pickles-verify-ansible` | Ubuntu 24.04 LTS / `Standard_B2s` / 鍵認証のみ |
+| 自動シャットダウン | — | 毎日 21:00 JST |
+
+**Windows サーバ側**
+
+| リソース | 名前（既定） | 備考 |
+| --- | --- | --- |
+| 仮想ネットワーク / サブネット | `vnet-` / `snet-pickles-verify-windows` | `10.91.0.0/16`。**Ansible 側とピアリングしない** |
+| NSG | `nsg-pickles-verify-windows` | 下の受信規則 |
+| パブリック IP | `pip-pickles-verify-windows` | Standard / Static / DNS ラベル付き |
+| NIC | `nic-pickles-verify-windows` | |
+| 仮想マシン | `vm-pickles-verify-windows` | Windows Server 2025 Datacenter / `Standard_B2s` |
+| コンピュータ名 | `Ansible-TEST-FS` | `inventory/test.yml` のホスト名と一致 |
+| データディスク | `datadisk-pickles-verify-windows` | 32GB。Playbook の `data_disks`（`disk_number: 2` → `D:`）に対応 |
+| Run Command | `winrm-bootstrap` | `scripts/bootstrap_winrm.ps1` を自動実行して WinRM(5986) を有効化 |
+| 自動シャットダウン | — | 毎日 21:00 JST |
+
+Windows NSG の受信規則:
+
+| 優先度 | 名前 | ポート | 送信元 | 用途 |
+| --- | --- | --- | --- | --- |
+| 100 | `Allow-RDP-Inbound` | 3389/TCP | 運用端末 | 初期確認・トラブル対応 |
+| 110 | `Allow-WinRM-Inbound` | 5986/TCP | Ansible 実行サーバの Public IP（**自動**） | Playbook 実行 |
+| 200〜 | （追加分） | 任意 | 任意 | `windows_additional_inbound_rules` |
+| 4000 | `Deny-All-Inbound` | すべて | すべて | 上記以外を拒否 |
+
+> Ansible 実行サーバの Public IP と Windows サーバの Public IP は
+> Terraform 内で相互参照しているため、**IP を手で書き写す作業はありません**。
 
 ---
 
-## 8. サーバへ接続する
+## 8. Outputs を確認する
 
 apply 完了後、ワークスペースの **Outputs** に接続情報が表示されます。
+以降の手順で使うので、この 4 つを控えます。
+
+| 出力 | 用途 |
+| --- | --- |
+| `ssh_command` | Ansible 実行サーバへの SSH コマンド（手順 10） |
+| `windows_public_ip_address` | `inventory/test.yml` の `ansible_host` に設定（手順 11） |
+| `windows_admin_username` | `vault_local_admin_user` に設定（既定 `picklesadmin`） |
+| `windows_admin_password_generated` | `vault_local_admin_password` に設定（手順 11） |
+
+その他の出力:
 
 | 出力 | 内容 |
 | --- | --- |
-| `ssh_command` | 接続用の SSH コマンド |
-| `public_ip_address` | パブリック IP |
-| `fqdn` | DNS 名 |
-| `private_ip_address` | プライベート IP（Windows 側 NSG の許可元に指定する） |
+| `public_ip_address` / `fqdn` | Ansible 実行サーバの Public IP / DNS 名 |
+| `windows_fqdn` | Windows サーバの DNS 名 |
+| `windows_rdp_command` | Windows への RDP 接続コマンド |
+| `windows_winrm_check_command` | WinRM の疎通確認コマンド |
+| `ansible_node_source_cidr` | Windows 側 NSG が許可している送信元 CIDR |
+| `upload_playbook_command` | Playbook 転送用の rsync コマンド |
+| `applied_tags` | 全リソースに付与されたタグ |
+
+ローカル実行の場合:
 
 ```bash
-ssh azureuser@<FQDN>
+terraform -chdir=terraform/ansible-node output
+terraform -chdir=terraform/ansible-node output -raw windows_public_ip_address
+terraform -chdir=terraform/ansible-node output windows_admin_password_generated
+```
+
+> `windows_admin_password` は sensitive のため画面ではマスクされます。
+> `windows_admin_password_generated`（マスクなし）を使ってください。
+> `windows_admin_password` を変数で明示指定した場合、
+> `windows_admin_password_generated` は `null` になります。
+
+---
+
+## 9. Windows サーバの状態を確認する
+
+Terraform が Run Command で `scripts/bootstrap_winrm.ps1` を実行済みのため、
+**Windows 側は追加の手作業なしで WinRM(5986) が有効**になっています。
+
+実行済みの内容:
+
+- WinRM サービスの自動起動化
+- 自己署名証明書の作成（CN = コンピュータ名）
+- HTTPS リスナー（5986）の構成
+- OS ファイアウォールの受信規則追加
+- 認証方式（Negotiate）とタイムアウトの設定
+
+自動実行の結果は Azure Portal の **VM → 操作 → 実行コマンド → `winrm-bootstrap`** で確認できます。
+
+> `enable_winrm_bootstrap = false` にした場合のみ、RDP でログオンして
+> `bootstrap_winrm.ps1` を手動実行する必要があります。
+> RDP コマンドは Outputs の `windows_rdp_command` に出ています。
+
+---
+
+## 10. Ansible 実行サーバへ接続する
+
+```bash
+ssh azureuser@<FQDN>          # Outputs の ssh_command
 ```
 
 初回はセットアップ（cloud-init）に 5〜10 分かかります。完了を待って確認します。
@@ -338,260 +429,114 @@ cat /var/log/ansible-node-setup.done      # ansible --version の結果が入る
 - `ansible-core` / `pywinrm` / `requests-ntlm`
 - コレクション `ansible.windows` / `community.windows` / `microsoft.ad` / `ansible.utils`
 
----
-
-## 9. 構築対象の Windows サーバ
-
-### 9-A. 同じワークスペースで作成する場合（既定）
-
-`create_windows_server = true`（既定）のとき、手順 7 の apply で
-**Windows サーバ・その NSG・専用 VNet・Public IP・データディスクまで一括作成**されます。
-追加のワークスペースや手作業は不要です。
-
-作成されるもの（すべて `rg-pickles-verify-ansible` 内）:
-
-| リソース | 名前（既定） | 備考 |
-| --- | --- | --- |
-| 仮想マシン | `vm-pickles-verify-windows` | Windows Server 2025 Datacenter / `Standard_B2s` |
-| コンピュータ名 | `Ansible-TEST-FS` | `inventory/test.yml` のホスト名と一致 |
-| 仮想ネットワーク | `vnet-pickles-verify-windows` | `10.91.0.0/16`。**Ansible 側とピアリングしない** |
-| NSG | `nsg-pickles-verify-windows` | 下表の受信規則 |
-| パブリック IP | `pip-pickles-verify-windows` | Standard / Static |
-| データディスク | `datadisk-pickles-verify-windows` | 32GB。Playbook の `data_disks`（`disk_number: 2` → `D:`）に対応 |
-| Run Command | `winrm-bootstrap` | `bootstrap_winrm.ps1` を自動実行して WinRM(5986) を有効化 |
-
-受信規則:
-
-| 優先度 | 名前 | ポート | 送信元 | 用途 |
-| --- | --- | --- | --- | --- |
-| 100 | `Allow-RDP-Inbound` | 3389/TCP | 運用端末 | 初期確認・トラブル対応 |
-| 110 | `Allow-WinRM-Inbound` | 5986/TCP | Ansible 実行サーバの Public IP（自動） | Playbook 実行 |
-| 200〜 | （追加分） | 任意 | 任意 | `windows_additional_inbound_rules` |
-| 4000 | `Deny-All-Inbound` | すべて | すべて | 上記以外を拒否 |
-
-#### 接続情報を確認する
-
-HCP のワークスペース **Outputs**:
-
-| 出力 | 内容 |
-| --- | --- |
-| `windows_public_ip_address` | インベントリの `ansible_host` に設定する値 |
-| `windows_fqdn` | Public IP の FQDN |
-| `windows_admin_username` | ローカル管理者ユーザ名（既定 `picklesadmin`） |
-| `windows_admin_password_generated` | 自動生成したローカル管理者パスワード（**HCP の画面で読める**。`windows_admin_password` を明示指定した場合は `null`） |
-| `windows_admin_password` | ローカル管理者パスワード（sensitive のため画面ではマスク。`terraform output -raw` で取得） |
-| `windows_winrm_check_command` | 疎通確認コマンド |
-
-ローカル実行の場合:
+Windows サーバへのポート疎通もここで確認できます。
 
 ```bash
-terraform -chdir=terraform/ansible-node output -raw windows_public_ip_address
-terraform -chdir=terraform/ansible-node output -raw windows_admin_password
-```
-
-#### WinRM の有効化について
-
-`enable_winrm_bootstrap = true`（既定）のとき、VM 作成後に
-`terraform/scripts/bootstrap_winrm.ps1` が Run Command で自動実行され、
-自己署名証明書の作成・5986 リスナー・OS ファイアウォール規則までが構成されます。
-**RDP でログオンする必要はありません。**
-
-自動実行を止めたい場合は `enable_winrm_bootstrap = false` にし、
-RDP でログオンして手動実行してください。
-
-#### 疎通を確認する
-
-Ansible 実行サーバへ SSH してから実行します。
-
-```bash
-# ポート疎通
 nc -vz <windows_public_ip_address> 5986
-
-# WinRM（手順 10 でインベントリと vault.yml を設定した後）
-cd ~/ansible-windows-build
-ansible windows -m ansible.windows.win_ping -i inventory/test.yml
-```
-
-#### 構築完了後に RDP を閉じる
-
-```hcl
-enable_rdp_rule = false
+# → Connection to ... 5986 port [tcp/*] succeeded!
 ```
 
 ---
 
-### 9-B. 別環境の既存 Windows サーバを対象にする場合
+## 11. Playbook を配置して設定する
 
-`create_windows_server = false` にしたうえで、`terraform/windows-nsg` を
-別ワークスペースで apply します。
-Windows サーバ本体（VM / Public IP）は**別途 Public IP 付きで作成済み**である前提です。
+### 11.1 Playbook を配置する
 
-#### 9-B.1 Ansible 実行サーバの Public IP を確認する
-
-WinRM の許可元になります。HCP のワークスペース **Outputs** の
-`ansible_node_source_cidr`（例: `203.0.113.11/32`）を控えます。
-
-ローカル実行の場合:
-
-```bash
-terraform -chdir=terraform/ansible-node output -raw ansible_node_source_cidr
-```
-
-> この値を明示せず、Azure 上の Public IP リソースから**自動参照**させることもできます
-> （`ansible_node_public_ip` を空にする）。Ansible 実行サーバを作り直した際に
-> 追従できるため、こちらを推奨します。
-
-#### 9-B.2 ワークスペースを作成する
-
-`ansible-node` とは **別ワークスペース**にします（state を分けるため）。
-
-1. **New workspace → Version control workflow** → `ishida-hiro/ansible-test-J32474`
-2. **Workspace Name**: `ansible-test-J32474-windows-nsg`（任意）
-3. **Working Directory** に `terraform/windows-nsg` を設定
-4. **Environment variables** は `ansible-node` と同じ 4 件を設定
-   （`ARM_CLIENT_ID` / `ARM_CLIENT_SECRET` / `ARM_TENANT_ID` / `ARM_SUBSCRIPTION_ID`）
-
-#### 9-B.3 Terraform variables を設定する
-
-| キー | 値の例 | HCL | 必須 |
-| --- | --- | --- | --- |
-| `resource_group_name` | `rg-pickles-windows`（Windows サーバの既存 RG） | | ✅ |
-| `allowed_rdp_source_addresses` | `["203.0.113.10/32"]` | ✅ **オン** | ✅ |
-| `ansible_node_public_ip` | `203.0.113.11/32`（空なら自動参照） | | |
-| `location` | `japaneast` | | |
-| `network_interface_ids` | `["/subscriptions/.../nic-S-AZR-007"]` | ✅ **オン** | |
-
-`network_interface_ids` を指定すると NSG が各 NIC に自動で関連付きます。
-空のままにすると **NSG を作成するだけ**なので、Azure Portal 等で手動関連付けが必要です。
-
-#### 9-B.4 apply して許可内容を確認する
-
-**Start new run** → plan 確認 → **Confirm & Apply**。
-
-作成される受信規則:
-
-| 優先度 | 名前 | ポート | 送信元 | 用途 |
-| --- | --- | --- | --- | --- |
-| 100 | `Allow-RDP-Inbound` | 3389/TCP | 運用端末 | WinRM 有効化・初期設定 |
-| 110 | `Allow-WinRM-Inbound` | 5986/TCP | Ansible 実行サーバ | Playbook 実行 |
-| 200〜 | （追加分） | 任意 | 任意 | `additional_inbound_rules` |
-| 4000 | `Deny-All-Inbound` | すべて | すべて | 上記以外を拒否 |
-
-Outputs の `allowed_inbound` で許可内容を一覧できます。
-
-```bash
-az network nsg rule list \
-  --nsg-name nsg-pickles-verify-windows \
-  --resource-group rg-pickles-windows --output table
-```
-
-#### 9-B.5 Windows サーバで WinRM を有効化する
-
-運用端末から RDP でログオンし、管理者権限の PowerShell で実行します。
-
-```powershell
-.\bootstrap_winrm.ps1        # terraform/scripts/bootstrap_winrm.ps1
-```
-
-Azure の Custom Script Extension / RunCommand から実行しても構いません。
-
-#### 9-B.6 疎通を確認する
-
-Ansible 実行サーバから確認します。
-
-```bash
-# ポート疎通
-nc -vz <Windows の Public IP> 5986
-
-# WinRM
-cd ~/ansible-windows-build
-ansible windows -m ansible.windows.win_ping
-```
-
-#### 9-B.7 構築完了後に RDP を閉じる
-
-RDP は WinRM 有効化と初期設定のために開けています。不要になったら閉じてください。
-
-```hcl
-enable_rdp_rule = false
-```
-
----
-
-## 10. Playbook を配置する
-
-### 方法 A: サーバ側で clone する
+**方法 A: サーバ側で clone する**
 
 ```bash
 git clone https://github.com/ishida-hiro/ansible-test-J32474.git ~/ansible-windows-build
 ```
 
-### 方法 B: 手元から転送する
+**方法 B: 手元から転送する**
 
 ```bash
-# 手元の端末で実行
+# 手元の端末で実行（Outputs の upload_playbook_command と同じ）
 rsync -av --exclude .git --exclude logs --exclude evidence \
   ./ansible-windows-build/ azureuser@<FQDN>:~/ansible-windows-build/
 ```
 
-### 認証情報を用意する
+### 11.2 認証情報を設定する
 
 `vault.yml` は Git に含まれないため、サーバ側で作成します。
+**手順 8 で控えた値をそのまま設定します。**
 
 ```bash
 cd ~/ansible-windows-build
 cp inventory/group_vars/all/vault.yml.example inventory/group_vars/all/vault.yml
-vi inventory/group_vars/all/vault.yml        # 実機のパスワードを設定
-#   vault_local_admin_user     = Terraform の windows_admin_username（既定 picklesadmin）
-#   vault_local_admin_password = Terraform の windows_admin_password
+vi inventory/group_vars/all/vault.yml
+```
 
+| `vault.yml` のキー | 設定する値 | Terraform 側 |
+| --- | --- | --- |
+| `vault_local_admin_user` | `picklesadmin` | `windows_admin_username` |
+| `vault_local_admin_password` | 自動生成されたパスワード | `windows_admin_password_generated` |
+
+その他のキー（FTP ユーザ等）は検証用の任意の値で構いません。
+
+```bash
 # 本番で使う場合は暗号化する
 ansible-vault encrypt inventory/group_vars/all/vault.yml
 ```
 
-### 接続先を Public IP に設定する
+### 11.3 接続先を Windows の Public IP に設定する
 
 構築時は Public IP 経由で WinRM 接続するため、インベントリの `ansible_host` に
 **Windows サーバの Public IP** を設定します（既定値は仮の private IP です）。
 
 ```bash
-vi inventory/test.yml        # ansible_host を Windows の Public IP に
+vi inventory/test.yml
 ```
 
 ```yaml
 fileserver:
   hosts:
     Ansible-TEST-FS:
-      ansible_host: 203.0.113.20      # ← Windows サーバの Public IP
-```
-
-同じワークスペースで Windows を作成した場合、設定する値は出力から取得できます。
-
-```bash
-# HCP の Outputs か、ローカル実行なら以下
-terraform -chdir=terraform/ansible-node output -raw windows_public_ip_address
+      ansible_host: 203.0.113.20      # ← Outputs の windows_public_ip_address
 ```
 
 > 閉域構成へ移行した際は、private IP に戻してください。
 
-### 動作確認
+---
+
+## 12. 疎通確認と Playbook 実行
 
 ```bash
 cd ~/ansible-windows-build
+
+# 環境の確認
 ansible --version
 ansible-galaxy collection list | head
 
-# Windows サーバへの疎通（対象サーバの準備後）
-ansible windows -m ansible.windows.win_ping
+# Windows サーバへの疎通
+ansible windows -m ansible.windows.win_ping -i inventory/test.yml
 ```
 
-Windows サーバの構築手順は [01_構築手順.md](01_構築手順.md) を参照してください。
+成功例:
+
+```
+Ansible-TEST-FS | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+ここまで通れば Windows サーバの構築を開始できます。
+Playbook の実行手順は [01_構築手順.md](01_構築手順.md) を参照してください。
+
+### 構築完了後に RDP を閉じる
+
+RDP は初期確認・トラブル対応のために開けています。不要になったら閉じてください。
+
+```hcl
+enable_rdp_rule = false
+```
+
+変数を変更して apply し直すと、`Allow-RDP-Inbound` が削除されます。
 
 ---
 
-## 11. 作り直し・削除
-
-### 9-A（既定・ワークスペース 1 つ）の場合
+## 13. 作り直し・削除
 
 Ansible 実行サーバも Windows サーバも同じリソースグループに閉じているため、
 **destroy 1 回でまとめて消えます**。
@@ -607,26 +552,23 @@ Ansible 実行サーバも Windows サーバも同じリソースグループに
 
 VM だけを作り直す場合、Public IP は維持されるため NSG の許可も変わりません。
 
-### 9-B（ワークスペース 2 つ）の場合
+> Windows VM を作り直すと **パスワードが再生成されるわけではありません**
+> （`random_password` は state に保持されます）。
+> ただし Run Command による WinRM 設定は再実行されます。
 
-**削除は windows-nsg → ansible-node の順**で行います
-（windows-nsg が ansible-node の Public IP を参照しているため）。
+ローカル実行時のショートカット:
 
-| 操作 | 手順 |
-| --- | --- |
-| 全削除 | 各ワークスペース **Settings → Destruction and Deletion → Queue destroy plan** |
-| RDP を閉じる | windows-nsg の `enable_rdp_rule = false` にして apply |
-
-`windows-nsg` は **既存 RG 内に NSG だけを作る**構成のため、destroy しても
-Windows サーバ本体には影響しません（NSG の関連付けが外れます）。
-
-> Ansible 実行サーバを**リソースごと再作成**すると Public IP が変わることがあります。
-> その場合は windows-nsg も apply し直してください
-> （`ansible_node_public_ip` を空にして自動参照にしておくと追従が容易です）。
+```bash
+cd terraform/ansible-node
+make rebuild            # destroy → apply
+make recreate-windows   # Windows の VM だけ作り直す
+make winpass            # Windows のパスワードを表示
+make wincheck           # Ansible 実行サーバから WinRM 疎通を確認
+```
 
 ---
 
-## 12. トラブルシューティング
+## 14. トラブルシューティング
 
 | 症状 | 原因 | 対処 |
 | --- | --- | --- |
@@ -637,18 +579,18 @@ Windows サーバ本体には影響しません（NSG の関連付けが外れ�
 | `building AzureRM Client: ... could not configure AzureCli Authorizer` | Azure 認証情報が未設定 | Environment variables 4 件を設定する（手順 6.2） |
 | `Warning: Value for undeclared variable ... "ARM_TENANT_ID"`（plan 自体は成功） | `ARM_*` を **Terraform variable** カテゴリで登録している | 警告自体は無害だが、その値は Azure 認証に使われない。4 件を **Environment variable** として登録し直し、Terraform variable 側は削除する（手順 6.2） |
 | `Authorization failed` / `AuthorizationFailed` | SP の権限不足 | SP に対象サブスクリプションの **Contributor** を付与する |
+| `Windows サーバへは Ansible 実行サーバの Public IP から接続する構成です` | `create_public_ip = false` かつ `create_windows_server = true` | `create_public_ip = true` にする（別 VNet の Windows へ到達できないため） |
+| Windows VM の apply が `The requested size ... is not available` | 指定リージョンで `windows_vm_size` が使えない | `az vm list-skus -l japaneast --size Standard_B --output table` で利用可能なサイズを確認して変更する |
+| Windows VM の apply が `The platform image ... is not available` | `windows_source_image` の SKU がサブスクリプションで使えない | `az vm image list --publisher MicrosoftWindowsServer --offer WindowsServer --all -o table` で確認し、`2022-datacenter-azure-edition` 等に変更する |
 | SSH がタイムアウトする | 接続元 IP が NSG 許可範囲外 | `curl -s https://ifconfig.me` で現在の IP を確認し変数を更新して apply |
 | SSH が `Permission denied (publickey)` | 登録した公開鍵と手元の秘密鍵が不一致 | `ssh -i ~/.ssh/id_ed25519 azureuser@<FQDN>` で鍵を明示する |
 | `ansible` コマンドが無い | cloud-init 未完了 | `cloud-init status --wait` で完了を待つ |
 | VM が停止している | 自動シャットダウン（毎日 21:00 JST） | Azure Portal で起動する。不要なら `enable_auto_shutdown = false` |
-| windows-nsg の apply で `Ansible 実行サーバの Public IP を解決できません` | ansible-node 未作成 / 名前不一致 | 先に ansible-node を apply する。または `ansible_node_public_ip` を明示指定する |
-| `nc -vz <Windows IP> 5986` がタイムアウト | Windows 側 NSG の許可元が不一致 | windows-nsg の `ansible_node_public_ip` が現在の Ansible 実行サーバ Public IP と一致しているか確認する |
-| `win_ping` が `the specified credentials were rejected` | 認証情報の誤り | `vault.yml` のユーザ / パスワードを確認する |
+| `nc -vz <Windows IP> 5986` がタイムアウト | Ansible 実行サーバを作り直して Public IP が変わった | 再度 apply して NSG を更新する（同一構成内なら自動追従する） |
+| `win_ping` が `Connection refused` | WinRM 未有効化 | Run Command が失敗している。Azure Portal の VM → 「実行コマンド」で `bootstrap_winrm.ps1` を再実行する（手順 9） |
+| `win_ping` が `the specified credentials were rejected` | `vault.yml` の値が Terraform 側と不一致 | `windows_admin_password_generated` の値を `vault_local_admin_password` に設定する（手順 11.2） |
 | `win_ping` が `certificate verify failed` | 証明書検証が有効 | `inventory/group_vars/windows.yml` の `ansible_winrm_server_cert_validation: ignore` を確認する |
-| `win_ping` が `Connection refused` | WinRM 未有効化 | Run Command の自動実行が失敗している。Azure Portal の VM → 「実行コマンド」で `bootstrap_winrm.ps1` を再実行するか、RDP でログオンして手動実行する（手順 9-A / 9-B.5） |
-| Windows VM の apply が `The requested size ... is not available` | 指定リージョンで `windows_vm_size` が使えない | `az vm list-skus -l japaneast --size Standard_B --output table` で利用可能なサイズを確認して変更する |
-| Windows VM の apply が `The platform image ... is not available` | `windows_source_image` の SKU がサブスクリプションで使えない | `az vm image list --publisher MicrosoftWindowsServer --offer WindowsServer --all -o table` で確認し、`2022-datacenter-azure-edition` 等に変更する |
-| `win_ping` が `the specified credentials were rejected`（Terraform で作成した Windows） | `vault.yml` の値が Terraform の `windows_admin_username` / `windows_admin_password` と不一致 | `terraform output -raw windows_admin_password` の値を `vault_local_admin_password` に設定する |
+| `win_ping` で名前解決に失敗する | `ansible_host` が private IP のまま | Windows の **Public IP** に変更する（手順 11.3） |
 
 ---
 
@@ -673,13 +615,16 @@ SSH 公開鍵は `ssh_public_key_path`（既定 `~/.ssh/id_rsa.pub`）から自�
 `make` を使ったショートカット:
 
 ```bash
-make help          # 使えるターゲット一覧
-make plan          # 変更内容の確認
-make apply         # 構築
-make ssh           # SSH 接続
-make upload        # Playbook 転送
-make rebuild       # destroy → apply
-make destroy       # 削除
+make help              # 使えるターゲット一覧
+make plan              # 変更内容の確認
+make apply             # 構築
+make ssh               # Ansible 実行サーバへ SSH
+make upload            # Playbook 転送
+make winpass           # Windows のパスワード表示
+make rdp               # Windows への RDP コマンド表示
+make wincheck          # WinRM 疎通確認
+make rebuild           # destroy → apply
+make destroy           # 削除
 ```
 
 ---
@@ -711,6 +656,89 @@ terraform apply
 
 ---
 
+## 付録 C. 別環境の既存 Windows サーバを対象にする場合
+
+Windows サーバが**既に別環境に存在する**場合は、本手順で Windows を作らず、
+その NSG だけを `terraform/windows-nsg` で構成します。
+ワークスペースは 2 つになります。
+
+### C-1. ansible-node 側の設定
+
+手順 6.3 の Terraform variables に以下を追加します。
+
+| キー | 値 | HCL |
+| --- | --- | --- |
+| `create_windows_server` | `false` | |
+| `windows_server_public_ips` | `["203.0.113.20/32"]`（対象 Windows の Public IP） | ✅ **オン** |
+
+これで Windows サーバは作成されず、NSG の送信許可（5986）だけが設定されます。
+
+### C-2. Ansible 実行サーバの Public IP を確認する
+
+WinRM の許可元になります。Outputs の `ansible_node_source_cidr`
+（例: `203.0.113.11/32`）を控えます。
+
+```bash
+terraform -chdir=terraform/ansible-node output -raw ansible_node_source_cidr
+```
+
+> この値を明示せず、Azure 上の Public IP リソースから**自動参照**させることもできます
+> （`ansible_node_public_ip` を空にする）。Ansible 実行サーバを作り直した際に
+> 追従できるため、こちらを推奨します。
+
+### C-3. windows-nsg のワークスペースを作成する
+
+`ansible-node` とは **別ワークスペース**にします（state を分けるため）。
+
+1. **New workspace → Version control workflow** → `ishida-hiro/ansible-test-J32474`
+2. **Workspace Name**: `ansible-test-J32474-windows-nsg`（任意）
+3. **Working Directory** に `terraform/windows-nsg` を設定
+4. **Environment variables** は `ansible-node` と同じ 4 件を設定
+   （`ARM_CLIENT_ID` / `ARM_CLIENT_SECRET` / `ARM_TENANT_ID` / `ARM_SUBSCRIPTION_ID`）
+
+### C-4. Terraform variables を設定する
+
+| キー | 値の例 | HCL | 必須 |
+| --- | --- | --- | --- |
+| `resource_group_name` | `rg-pickles-windows`（Windows サーバの既存 RG） | | ✅ |
+| `allowed_rdp_source_addresses` | `["203.0.113.10/32"]` | ✅ **オン** | ✅ |
+| `ansible_node_public_ip` | `203.0.113.11/32`（空なら自動参照） | | |
+| `location` | `japaneast` | | |
+| `network_interface_ids` | `["/subscriptions/.../nic-S-AZR-007"]` | ✅ **オン** | |
+
+`network_interface_ids` を指定すると NSG が各 NIC に自動で関連付きます。
+空のままにすると **NSG を作成するだけ**なので、Azure Portal 等で手動関連付けが必要です。
+
+### C-5. apply して許可内容を確認する
+
+**Start new run** → plan 確認 → **Confirm & Apply**。
+
+```bash
+az network nsg rule list \
+  --nsg-name nsg-pickles-verify-windows \
+  --resource-group rg-pickles-windows --output table
+```
+
+### C-6. Windows サーバで WinRM を有効化する
+
+運用端末から RDP でログオンし、管理者権限の PowerShell で実行します。
+
+```powershell
+.\bootstrap_winrm.ps1        # terraform/scripts/bootstrap_winrm.ps1
+```
+
+Azure の Custom Script Extension / 実行コマンド（RunCommand）から実行しても構いません。
+
+### C-7. 削除する場合の順序
+
+**削除は windows-nsg → ansible-node の順**で行います
+（windows-nsg が ansible-node の Public IP を参照しているため）。
+
+`windows-nsg` は **既存 RG 内に NSG だけを作る**構成のため、destroy しても
+Windows サーバ本体には影響しません（NSG の関連付けが外れます）。
+
+---
+
 ## 関連ドキュメント
 
 | ドキュメント | 内容 |
@@ -719,5 +747,5 @@ terraform apply
 | [02_ロール一覧.md](02_ロール一覧.md) | Ansible ロールと設計書の対応表 |
 | [03_要確認事項.md](03_要確認事項.md) | 設計書の未確定・矛盾箇所 |
 | [../terraform/README.md](../terraform/README.md) | 接続方式の全体像と実行順序 |
-| [../terraform/ansible-node/README.md](../terraform/ansible-node/README.md) | Ansible 実行サーバ構成のリファレンス（変数一覧など） |
-| [../terraform/windows-nsg/README.md](../terraform/windows-nsg/README.md) | Windows サーバ用 NSG のリファレンス |
+| [../terraform/ansible-node/README.md](../terraform/ansible-node/README.md) | Terraform 構成のリファレンス（変数一覧など） |
+| [../terraform/windows-nsg/README.md](../terraform/windows-nsg/README.md) | 既存 Windows サーバ用 NSG のリファレンス（付録 C で使用） |

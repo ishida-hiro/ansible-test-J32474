@@ -91,9 +91,10 @@ ansible-playbook playbooks/site.yml
 
 詳細は [docs/01_構築手順.md](docs/01_構築手順.md) を参照してください。
 
-Ansible を実行するサーバ自体を Azure 上に払い出す手順は
+Ansible を実行するサーバと、検証用の Windows サーバを Azure 上に払い出す手順は
 [docs/04_Ansible実行サーバ構築手順.md](docs/04_Ansible実行サーバ構築手順.md) を参照してください
 （Terraform / HCP Terraform・GitHub 連携）。
+**1 つのワークスペースで両サーバと NSG をまとめて作成し、Windows の WinRM 有効化まで自動化**しています。
 
 構築時は Ansible 実行サーバ・Windows サーバの双方に Public IP を付与し、
 NSG で必要な送信元 IP × ポートのみを許可する構成です（VNet ピアリングは使用しません）。
