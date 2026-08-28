@@ -4,7 +4,7 @@
 | --- | --- |
 | [`ansible-node/`](ansible-node/) | **Ansible 実行用サーバ（コントロールノード）を Azure に払い出す Terraform**。検証用に専用リソースグループへ閉じ込めており、`terraform destroy` で丸ごと作り直せる |
 | [`windows-nsg/`](windows-nsg/) | **別環境に既にある Windows サーバ用の NSG（単体構成）**。RDP(3389) を運用端末から、WinRM(5986) を Ansible 実行サーバからのみ許可する。検証用の Windows を `ansible-node/` で一緒に作る場合は不要 |
-| `scripts/bootstrap_winrm.ps1` | 構築対象の Windows サーバで WinRM over HTTPS(5986) を有効化するスクリプト。Custom Script Extension / RunCommand / RDP のいずれかで各サーバに 1 回実行する |
+| `scripts/bootstrap_winrm.ps1` | 構築対象の Windows サーバで WinRM over HTTPS(5986) を有効化するスクリプト。`ansible-node` で Windows を作る場合は Run Command から自動実行される。**Run Command は BOM 無しでファイル化し PowerShell 5.1 が ANSI として読むため、本ファイルは ASCII のみで記述すること**（日本語を入れると構文エラーで apply が失敗する） |
 
 ## 接続方式（構築時）
 

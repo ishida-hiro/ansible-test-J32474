@@ -33,6 +33,10 @@ locals {
     : "${var.prefix}-${var.env}-win-${random_string.suffix.result}"
   )
 
+  # Run Command で実行する WinRM 初期設定スクリプト。
+  # ASCII のみであることを下の precondition で検証する。
+  winrm_bootstrap_script = file("${path.module}/../scripts/bootstrap_winrm.ps1")
+
   # RDP の許可元。未指定なら SSH と同じ運用端末を使う
   rdp_source_addresses = (
     length(var.allowed_rdp_source_addresses) > 0
@@ -301,11 +305,29 @@ resource "azurerm_virtual_machine_run_command" "winrm_bootstrap" {
   virtual_machine_id = azurerm_windows_virtual_machine.this[0].id
 
   source {
-    script = file("${path.module}/../scripts/bootstrap_winrm.ps1")
+    script = local.winrm_bootstrap_script
   }
 
   # データディスク接続後に実行して、再起動を伴う操作と重ならないようにする
   depends_on = [azurerm_virtual_machine_data_disk_attachment.windows_data]
+
+  lifecycle {
+    precondition {
+      # Run Command はスクリプトを BOM 無しでファイル化し、
+      # Windows PowerShell 5.1 はそれを UTF-8 ではなく ANSI として読む。
+      # そのため非 ASCII 文字（日本語コメント / メッセージ）が含まれていると
+      # 文字化けして構文エラーになり、apply が VMExtensionProvisioningError で失敗する。
+      #   The string is missing the terminator: '.
+      # apply まで進んでから失敗しないよう、plan の時点で検出する。
+      condition     = can(regex("^[\\x00-\\x7F]*$", local.winrm_bootstrap_script))
+      error_message = <<-EOT
+        terraform/scripts/bootstrap_winrm.ps1 に非 ASCII 文字が含まれています。
+        Azure Run Command 経由では文字化けして PowerShell の構文エラーになるため、
+        本スクリプトは ASCII のみで記述してください（日本語の説明はドキュメント側へ）。
+        混入箇所の確認: grep -n -P '[^\x00-\x7F]' terraform/scripts/bootstrap_winrm.ps1
+      EOT
+    }
+  }
 }
 
 # ---- 自動シャットダウン（検証環境のコスト対策） -----------------------------
