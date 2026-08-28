@@ -1,0 +1,33 @@
+---
+# ============================================================================
+# win_services : サービス設定
+#   設計書 1.15 「不要なWindowsサービスは無効にする」
+#     No.1 Hyper-V Time Synchronization Service (vmictimesync)
+#          → 時刻同期先を Hyper-V ホストにしないため無効
+#     ｻｰﾋﾞｽ一覧（シート8 16. / 旧シート2 17.） : Stopped / Disabled
+# ============================================================================
+
+- name: サービスのスタートアップの種類と状態を設定する
+  ansible.windows.win_service:
+    name: "{{ item.name }}"
+    start_mode: "{{ item.start_mode | default('disabled') }}"
+    state: "{{ item.state | default('stopped') }}"
+  loop: "{{ windows_services_config }}"
+  loop_control:
+    label: "{{ item.name }} -> {{ item.start_mode | default('disabled') }}/{{ item.state | default('stopped') }} ({{ item.note | default('') }})"
+
+- name: 設定後のサービス状態を確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $names = @('{{ windows_services_config | map(attribute="name") | join("','") }}')
+      Get-Service -Name $names -ErrorAction SilentlyContinue |
+          Select-Object Name, Status, StartType
+  register: r_services
+  changed_when: false
+  when: windows_services_config | length > 0
+
+- name: サービス状態を表示する
+  ansible.builtin.debug:
+    var: r_services.output
+  when: windows_services_config | length > 0

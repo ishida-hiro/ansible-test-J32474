@@ -1,0 +1,107 @@
+#cloud-config
+# ============================================================================
+# Ansible 実行用サーバ 初期セットアップ（Terraform が生成）
+#   完了マーカー: /var/log/ansible-node-setup.done
+#   ログ        : /var/log/cloud-init-output.log
+# ============================================================================
+timezone: Asia/Tokyo
+locale: ja_JP.UTF-8
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - python3-pip
+  - python3-venv
+  - python3-dev
+  - build-essential
+  - libkrb5-dev
+  - git
+  - jq
+  - unzip
+  - tree
+  - language-pack-ja
+
+write_files:
+  - path: /home/${admin_username}/collection-requirements.yml
+    permissions: "0644"
+    owner: ${admin_username}:${admin_username}
+    content: |
+      ---
+      # ansible-windows-build/requirements.yml と同等の内容
+      collections:
+%{ for c in ansible_collections ~}
+        - name: ${split(":", c)[0]}
+%{ if length(split(":", c)) > 1 ~}
+          version: "${split(":", c)[1]}"
+%{ endif ~}
+%{ endfor ~}
+
+  - path: /etc/profile.d/99-ansible.sh
+    permissions: "0644"
+    content: |
+      # Ansible 用 venv を既定で有効にする
+      if [ -f "$HOME/venv-ansible/bin/activate" ]; then
+        . "$HOME/venv-ansible/bin/activate"
+      fi
+      export ANSIBLE_COLLECTIONS_PATH="$HOME/.ansible/collections"
+
+  - path: /home/${admin_username}/README-setup.md
+    permissions: "0644"
+    owner: ${admin_username}:${admin_username}
+    content: |
+      # Ansible 実行用サーバ
+
+      本サーバは Terraform (terraform/ansible-node) で払い出されています。
+
+      | 項目 | 値 |
+      | --- | --- |
+      | Ansible 実行環境 | `~/venv-ansible`（ログイン時に自動で有効化） |
+      | コレクション格納先 | `~/.ansible/collections` |
+      | Playbook 配置先 | `~/ansible-windows-build` |
+
+      ## 使い方
+
+      ```bash
+      cd ~/ansible-windows-build
+      ansible --version
+      ansible windows -m ansible.windows.win_ping
+      ansible-playbook playbooks/site.yml
+      ```
+
+      ## Playbook の配置
+
+      リポジトリを clone していない場合は、運用端末から転送してください。
+
+      ```bash
+      # 運用端末側で実行
+      rsync -av --exclude .git --exclude logs --exclude evidence \
+        ./ansible-windows-build/ ${admin_username}@<このサーバのIP>:~/ansible-windows-build/
+      ```
+
+      ## 注意
+
+      検証環境のため、毎日自動シャットダウンが設定されている場合があります。
+      再作成は運用端末側で `terraform apply` を実行してください。
+
+runcmd:
+  # ---- Python 仮想環境と Ansible ----------------------------------------
+  - [ su, -l, "${admin_username}", -c, "python3 -m venv ~/venv-ansible" ]
+  - [ su, -l, "${admin_username}", -c, "~/venv-ansible/bin/pip install --upgrade pip wheel setuptools" ]
+  - [ su, -l, "${admin_username}", -c, "~/venv-ansible/bin/pip install 'ansible-core${ansible_core_version}' pywinrm requests-ntlm" ]
+
+  # ---- Windows 管理用コレクション ----------------------------------------
+  - [ su, -l, "${admin_username}", -c, "~/venv-ansible/bin/ansible-galaxy collection install -r ~/collection-requirements.yml" ]
+
+  # ---- Playbook リポジトリ -------------------------------------------------
+%{ if git_repository_url != "" ~}
+  - [ su, -l, "${admin_username}", -c, "git clone ${git_repository_url} ~/ansible-windows-build" ]
+%{ else ~}
+  - [ su, -l, "${admin_username}", -c, "mkdir -p ~/ansible-windows-build" ]
+%{ endif ~}
+
+  # ---- 完了マーカー ---------------------------------------------------------
+  - [ sh, -c, "su -l ${admin_username} -c '~/venv-ansible/bin/ansible --version' > /var/log/ansible-node-setup.done 2>&1" ]
+  - [ sh, -c, "echo 'setup finished at' $(date -Is) >> /var/log/ansible-node-setup.done" ]
+
+final_message: "Ansible 実行用サーバのセットアップが完了しました（所要 $UPTIME 秒）"

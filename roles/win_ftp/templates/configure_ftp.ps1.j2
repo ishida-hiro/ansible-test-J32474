@@ -1,0 +1,111 @@
+# ============================================================================
+# FTP サイト構成スクリプト（Ansible が生成 / 設計書 1.16 FTP設定）
+#   冪等性を保つため、既存設定と一致する場合は変更しない。
+# ============================================================================
+$ErrorActionPreference = 'Stop'
+Import-Module WebAdministration
+$script:changed = $false
+
+function Set-IfDifferent {
+    param($Path, $Name, $Value)
+    $cur = (Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue).Value
+    if ($null -eq $cur) { $cur = Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue }
+    if ("$cur" -ne "$Value") {
+        Set-ItemProperty -Path $Path -Name $Name -Value $Value
+        $script:changed = $true
+        Write-Output "CHANGED: $Path $Name = $Value"
+    }
+}
+
+{% for site in ftp_sites %}
+# ---------------------------------------------------------------------------
+# サイト: {{ site.name }}  ({{ site.physical_path }})
+# ---------------------------------------------------------------------------
+$siteName = '{{ site.name }}'
+$sitePath = "IIS:\Sites\$siteName"
+
+# 物理パス
+if (-not (Test-Path -LiteralPath '{{ site.physical_path }}')) {
+    New-Item -ItemType Directory -Path '{{ site.physical_path }}' -Force | Out-Null
+    $script:changed = $true
+    Write-Output "CHANGED: created {{ site.physical_path }}"
+}
+
+# サイト作成（バインド: {{ site.ip_address }}:{{ site.port }}{% if site.host_name %}:{{ site.host_name }}{% endif %}）
+if (-not (Test-Path $sitePath)) {
+    New-WebFtpSite -Name $siteName -Port {{ site.port }} `
+        -IPAddress '{{ site.ip_address }}' `
+{% if site.host_name %}
+        -HostHeader '{{ site.host_name }}' `
+{% endif %}
+        -PhysicalPath '{{ site.physical_path }}' -Force | Out-Null
+    $script:changed = $true
+    Write-Output "CHANGED: created FTP site $siteName"
+} else {
+    Set-IfDifferent -Path $sitePath -Name 'physicalPath' -Value '{{ site.physical_path }}'
+    $binding = '{{ site.ip_address }}:{{ site.port }}:{{ site.host_name | default("", true) }}'
+    $curBinding = (Get-ItemProperty $sitePath -Name bindings).Collection |
+                  Where-Object { $_.protocol -eq 'ftp' } | Select-Object -First 1
+    if ($curBinding -and $curBinding.bindingInformation -ne $binding) {
+        Set-WebBinding -Name $siteName -BindingInformation $curBinding.bindingInformation `
+            -PropertyName BindingInformation -Value $binding
+        $script:changed = $true
+        Write-Output "CHANGED: binding $siteName = $binding"
+    }
+}
+
+# SSL 設定（設計書 SSL = {{ '有り' if site.ssl | default(false) else '無し' }}）
+{% if site.ssl | default(false) %}
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.security.ssl.controlChannelPolicy' -Value 1  # SslRequire
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.security.ssl.dataChannelPolicy'    -Value 1
+{% else %}
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.security.ssl.controlChannelPolicy' -Value 0  # SslAllow
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.security.ssl.dataChannelPolicy'    -Value 0
+{% endif %}
+
+# 認証（設計書 認証 = {{ site.authentication }}）
+{% if site.authentication | lower == 'basic' %}
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.security.authentication.basicAuthentication.enabled'     -Value $true
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.security.authentication.anonymousAuthentication.enabled' -Value $false
+{% else %}
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.security.authentication.basicAuthentication.enabled'     -Value $false
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.security.authentication.anonymousAuthentication.enabled' -Value $true
+{% endif %}
+
+# 承認規則（設計書 ユーザー = {{ site.users | join(',') }} / アクセス許可 = {{ site.permissions }}）
+$authzFilter = "/system.ftpServer/security/authorization"
+$existing = Get-WebConfiguration -Filter $authzFilter -PSPath "IIS:\" -Location $siteName
+$rules = @()
+if ($existing) { $rules = $existing.Collection }
+{% for user in site.users %}
+$has = $rules | Where-Object { $_.users -eq '{{ user }}' -and $_.accessType -eq 'Allow' }
+if (-not $has) {
+    Add-WebConfiguration -Filter $authzFilter -PSPath "IIS:\" -Location $siteName -Value @{
+        accessType  = 'Allow'
+        users       = '{{ user }}'
+        permissions = '{{ site.permissions }}'
+    }
+    $script:changed = $true
+    Write-Output "CHANGED: authorization $siteName {{ user }} = {{ site.permissions }}"
+} elseif ("$($has.permissions)" -ne '{{ 3 if site.permissions == "Read,Write" else site.permissions }}') {
+    Set-WebConfigurationProperty -Filter "$authzFilter/add[@users='{{ user }}']" -PSPath "IIS:\" `
+        -Location $siteName -Name 'permissions' -Value '{{ site.permissions }}'
+    $script:changed = $true
+    Write-Output "CHANGED: authorization permissions $siteName {{ user }}"
+}
+{% endfor %}
+
+# FTP ログ（設計書 ディレクトリ = {{ ftp_log_directory }} / ロールオーバー = {{ ftp_log_rollover }}）
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.logFile.directory' -Value '{{ ftp_log_directory }}'
+Set-IfDifferent -Path $sitePath -Name 'ftpServer.logFile.period'    -Value '{{ ftp_log_rollover }}'
+
+# サイト起動
+$state = (Get-WebFtpSite -Name $siteName -ErrorAction SilentlyContinue).State
+if ($state -ne 'Started') {
+    Start-WebItem -PSPath $sitePath -ErrorAction SilentlyContinue
+    $script:changed = $true
+    Write-Output "CHANGED: started $siteName"
+}
+
+{% endfor %}
+if (-not $script:changed) { Write-Output "NOCHANGE" }

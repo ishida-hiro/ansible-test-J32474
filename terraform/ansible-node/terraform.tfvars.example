@@ -1,0 +1,67 @@
+# ============================================================================
+# terraform.tfvars のテンプレート
+#   cp terraform.tfvars.example terraform.tfvars して値を設定する
+#   ※ terraform.tfvars は .gitignore 対象（リポジトリにコミットしないこと）
+# ============================================================================
+
+# ★HCP Terraform で実行する場合、このファイルは使いません★
+#   .gitignore で *.tfvars は除外されるためリポジトリにも入りません。
+#   変数は HCP ワークスペースの「Variables」に設定してください（README 参照）。
+#   本ファイルはローカル実行時のみ使用します。
+
+# ---- 必須 -------------------------------------------------------------------
+# SSH(22) を許可する送信元。運用端末のグローバル IP を指定する。
+# 確認方法: curl -s https://ifconfig.me
+allowed_ssh_source_addresses = ["203.0.113.10/32"]
+
+# ---- 全体 -------------------------------------------------------------------
+# subscription_id = "00000000-0000-0000-0000-000000000000"   # 未指定なら ARM_SUBSCRIPTION_ID を使用
+prefix   = "pickles"
+env      = "verify"
+location = "japaneast"
+
+# リソースグループ名（既定: rg-<prefix>-<env>-ansible）
+# resource_group_name = "rg-pickles-verify-ansible"
+
+# Owner タグは既定で "TF-J32474"（Terraform 管理 + 管理番号）が全リソースに付与される。
+# 変更する場合のみ指定する。
+# owner_tag = "TF-J32474"
+
+# 追加タグ（Owner は owner_tag が優先されるため、ここで指定しても上書きされない）
+tags = {
+  CostTag = "verification"
+}
+
+# ---- ネットワーク -----------------------------------------------------------
+# 既定では専用の VNet を新規作成する。Windows サーバ側（10.0.0.0/16 想定）と
+# 重複しないアドレス空間にすること。
+vnet_address_space      = ["10.90.0.0/16"]
+subnet_address_prefixes = ["10.90.1.0/24"]
+
+# 既存サブネットへ配置する場合はこちらを指定する（VNet は作成されない）
+# existing_subnet_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.Network/virtualNetworks/vnet-xxx/subnets/snet-xxx"
+
+create_public_ip = true
+
+# ---- 仮想マシン -------------------------------------------------------------
+vm_size        = "Standard_B2s"
+admin_username = "azureuser"
+os_disk_size_gb = 64
+
+# SSH 公開鍵。ローカル実行ならパス指定でよい。
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+# HCP Terraform で実行する場合はファイルを参照できないため、
+# 公開鍵の「内容」をワークスペースの Terraform variables に設定すること。
+# （このファイルではなく HCP の UI 側で設定する）
+# ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... user@host"
+
+# ---- セットアップ内容 -------------------------------------------------------
+# Playbook リポジトリを clone する場合に指定する（未指定なら rsync 等で転送）
+# ※プライベートリポジトリの場合、cloud-init には認証情報が無いため clone に失敗する。
+#   その場合は空のままにして、SSH 接続後に手動で clone するか rsync で転送すること。
+# git_repository_url = "https://github.com/ishida-hiro/ansible-test-J32474.git"
+
+# ---- コスト対策 -------------------------------------------------------------
+enable_auto_shutdown   = true
+auto_shutdown_time     = "2100"
+auto_shutdown_timezone = "Tokyo Standard Time"

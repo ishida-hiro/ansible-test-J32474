@@ -1,0 +1,86 @@
+---
+# ============================================================================
+# 全ホスト共通パラメータ  （設計書「1.概要」より）
+# ============================================================================
+
+# ---- 1.2 ドメイン参加 -------------------------------------------------------
+# 今回の Ansible 初期構築ではドメイン参加 / DC 昇格を実施しない。
+# 実施する場合は true に変更する（docs/01_構築手順.md「0. 今回のスコープ」参照）。
+enable_domain_join: false
+
+ad_domain_name:    "PICKLES-CORP.pickles.co.jp"
+ad_netbios_name:   "PICKLES-CORP"
+ad_domain_ou_path: ""              # 空文字なら既定の Computers コンテナ
+
+# ---- 1.6 言語設定（日本語） -------------------------------------------------
+os_timezone:            "Tokyo Standard Time"
+os_locale:              "ja-JP"
+os_geo_location_id:     122        # 122 = Japan
+os_copy_settings_to_default: true  # 既定ユーザ/ようこそ画面へ複製
+install_ja_language_pack: false    # 英語イメージから構築する場合のみ true
+
+# ---- 1.5 ネットワーク設定 ---------------------------------------------------
+disable_ipv6: true                 # レジストリ DisabledComponents=0xFF + バインド解除
+hosts_entries: []                  # 設計書「11.hosts」= 記載なし(-)
+
+# ---- 1.7 リモート接続設定 ---------------------------------------------------
+enable_rdp: true
+rdp_require_nla: true              # ネットワークレベル認証で接続を許可する
+
+# ---- 1.10 Windows Defender ファイアウォール ---------------------------------
+firewall_state: disabled           # NSG で制御するため OS 側は無効
+firewall_customize_logging: true   # ログ/通知の既定値を明示的に流し込む
+firewall_log_size_kb: 4096
+
+# ---- 1.11 Windows Defender --------------------------------------------------
+disable_defender_by_policy: true   # Cortex XDR 導入のためポリシーで無効化
+
+# ---- 1.12 ユーザアカウント制御 ---------------------------------------------
+disable_uac: true                  # EnableLUA=0 / luafv Start=4
+
+# ---- 1.14 Windows 更新プログラム -------------------------------------------
+apply_windows_update: true         # 構築時に最新を適用
+windows_update_categories:
+  - CriticalUpdates
+  - SecurityUpdates
+  - UpdateRollups
+  - Updates
+disable_auto_update_policy: true   # ローカルGPO「自動更新を構成する」= 無効
+
+# ---- 1.15 サービス設定 ------------------------------------------------------
+windows_services_config:
+  - name: vmictimesync             # Hyper-V Time Synchronization Service
+    start_mode: disabled
+    state: stopped
+    note: "時刻同期先を Hyper-V ホストにしないため無効化"
+
+# ---- 3. ローカルサーバ 追加設定（詳細シート 3.ｻｰﾊﾞｰ ﾏﾈｰｼﾞｬｰ 相当） -----------
+disable_ie_esc: true               # IE セキュリティ強化の構成 Administrators/Users = オフ
+disable_telemetry_ui: true         # 診断データの送信 = オフ
+
+# ---- 4. Windows ログ --------------------------------------------------------
+# 現行の設計書（シート「8.ファイルサーバ」4.Windowsﾛｸﾞ）は 3 ログとも 20480KB。
+# ADサーバは Security のみ 131072KB のため group_vars/dc.yml で上書きする。
+eventlog_config:
+  - { name: Application, maximum_size: "20480KB" }
+  - { name: Security,    maximum_size: "20480KB" }
+  - { name: System,      maximum_size: "20480KB" }
+
+# ---- 5. システムのプロパティ（仮想メモリ） ----------------------------------
+# 設計書の記載に矛盾があるため既定では未設定。docs/03_要確認事項.md 参照。
+pagefile_configure: false
+pagefile_automatic_managed: true
+
+# ---- 1.4 ドライブ構成 / Azure 固有 ------------------------------------------
+# Azure Windows VM は一時ディスクが既定で D: を占有するため退避する
+azure_move_temp_drive: true
+azure_temp_drive_letter: "Z"
+data_disks: []                     # ホスト毎に host_vars で定義
+
+# ---- 役割と機能（既定は追加なし） -------------------------------------------
+windows_features: []
+windows_features_absent: []
+
+# ---- 証跡出力 ---------------------------------------------------------------
+evidence_dir_remote: 'C:\build_evidence'
+evidence_dir_local: "{{ playbook_dir }}/../evidence"

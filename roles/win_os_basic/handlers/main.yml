@@ -1,0 +1,5 @@
+---
+- name: Windows を再起動する
+  ansible.windows.win_reboot:
+    reboot_timeout: 1800
+    post_reboot_delay: 30

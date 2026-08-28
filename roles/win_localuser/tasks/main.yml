@@ -1,0 +1,61 @@
+---
+# ============================================================================
+# win_localuser : ローカルユーザ／ローカルグループ
+#   設計書 1.3「ユーザアカウント」
+#     ・ドメイン参加サーバはドメインユーザを利用する
+#     ・ローカルユーザは picklesadmin（Administrators）ほか FTP 認証ユーザ
+#   ※ADサーバ(No.1,2)はドメインコントローラのためローカルユーザは存在しない
+#     （group_vars/dc.yml で local_users: [] を定義）
+# ============================================================================
+
+- name: ドメインコントローラではローカルユーザ設定をスキップする
+  ansible.builtin.debug:
+    msg: "ドメインコントローラのためローカルユーザは作成しない（設計書 6.ﾛｰｶﾙﾕｰｻﾞｰ 特記事項）"
+  when: local_users | length == 0
+
+- name: ローカルユーザを作成する
+  ansible.windows.win_user:
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    description: "{{ item.description | default('') }}"
+    password_never_expires: "{{ item.password_never_expires | default(true) }}"
+    password_expired: false
+    user_cannot_change_password: "{{ item.user_cannot_change_password | default(false) }}"
+    account_disabled: false
+    update_password: on_create        # 既存ユーザのパスワードは上書きしない
+    state: present
+  loop: "{{ local_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true                        # パスワードをログへ出力しない
+
+- name: ローカルグループへ所属させる（設計書 7.ﾛｰｶﾙｸﾞﾙｰﾌﾟ）
+  ansible.windows.win_group_membership:
+    name: "{{ item.1 }}"
+    members:
+      - "{{ item.0.name }}"
+    state: present
+  loop: "{{ local_users | subelements('groups', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }} -> {{ item.1 }}"
+
+- name: Guest アカウントを無効化する
+  ansible.windows.win_user:
+    name: Guest
+    account_disabled: true
+    state: present
+  when: disable_guest_account | bool
+  failed_when: false                  # DC ではローカル Guest が存在しないため失敗を許容する
+
+- name: ローカルユーザ一覧を確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Get-LocalUser | Select-Object Name, Enabled, PasswordNeverExpires, Description
+  register: r_localusers
+  changed_when: false
+  failed_when: false
+
+- name: ローカルユーザ一覧を表示する
+  ansible.builtin.debug:
+    var: r_localusers.output

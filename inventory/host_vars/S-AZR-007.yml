@@ -1,0 +1,5 @@
+---
+# S-AZR-007 : ファイルサーバ
+computer_name:  "S-AZR-007"
+os_version:     "Windows Server 2025 Datacenter"
+server_purpose: "ファイルサーバ(FSRM/FTP)"

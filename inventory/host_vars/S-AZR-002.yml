@@ -1,0 +1,7 @@
+---
+# S-AZR-002 : ADサーバ(2号機)
+computer_name:   "S-AZR-002"
+os_version:      "Windows Server 2025 Datacenter"
+server_purpose:  "ADサーバ(2号機)"
+is_pdc_emulator: false
+ad_mode: additional_dc

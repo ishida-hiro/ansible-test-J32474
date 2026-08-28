@@ -1,0 +1,67 @@
+---
+# ============================================================================
+# win_update : Windows 更新プログラムの適用
+#   設計書 1.14
+#     ・構築時に最新版を適用する
+#     ・ローカルグループポリシー「自動更新を構成する」は無効に設定する
+#       （コンピュータの構成 > 管理用テンプレート > Windowsコンポーネント
+#         > Windows Update > 自動更新を構成する = 無効）
+# ============================================================================
+
+- name: 更新プログラムを適用する。繰り返し回数の上限は {{ windows_update_max_rounds }}
+  ansible.windows.win_updates:
+    category_names: "{{ windows_update_categories }}"
+    state: installed
+    reboot: "{{ windows_update_reboot | bool }}"
+    reboot_timeout: 3600
+  register: r_updates
+  until: (r_updates.installed_update_count | default(0)) == 0
+  retries: "{{ windows_update_max_rounds | int }}"
+  delay: 15
+  when: apply_windows_update | bool
+  failed_when: false                # 反復の打ち切りで異常終了させない
+
+- name: 適用結果を表示する
+  ansible.builtin.debug:
+    msg: >-
+      installed={{ r_updates.installed_update_count | default(0) }}
+      failed={{ r_updates.failed_update_count | default(0) }}
+      found={{ r_updates.found_update_count | default(0) }}
+  when: apply_windows_update | bool
+
+- name: 更新プログラムの適用に失敗したものがある場合は警告する
+  ansible.builtin.debug:
+    msg: "【要確認】適用に失敗した更新プログラムがあります。docs/03_要確認事項.md を参照のうえ手動で確認してください。"
+  when:
+    - apply_windows_update | bool
+    - (r_updates.failed_update_count | default(0)) | int > 0
+
+- name: ローカルグループポリシー「自動更新を構成する」を無効にする
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
+    name: NoAutoUpdate
+    data: 1                         # 1 = 自動更新しない（ポリシー「無効」相当の運用設定）
+    type: dword
+  when: disable_auto_update_policy | bool
+
+- name: 自動更新の動作設定を明示する（AUOptions = 通知のみ）
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
+    name: AUOptions
+    data: 2                         # 2 = ダウンロード前に通知
+    type: dword
+  when: disable_auto_update_policy | bool
+
+- name: 適用済みパッチ一覧を取得する（設計書 15.WindowsUpdate適用ﾊﾟｯﾁ一覧）
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Get-HotFix | Select-Object HotFixID, Description,
+          @{n='InstalledOn';e={ $_.InstalledOn.ToString('yyyy/MM/dd') }} |
+          Sort-Object InstalledOn
+  register: r_hotfix
+  changed_when: false
+
+- name: 適用済みパッチ一覧を表示する
+  ansible.builtin.debug:
+    var: r_hotfix.output

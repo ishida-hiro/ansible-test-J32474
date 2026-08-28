@@ -1,0 +1,108 @@
+---
+# ============================================================================
+# win_ftp : FTP サイト構成
+#   設計書 1.16「FTP設定」（S-AZR-007 ファイルサーバ）
+#     No.1 FAX送信用 : D:\POD  *:21          基本認証 docways 読み取り/書き込み
+#     No.2 NPJS      : D:\NPJS *:21 NPJS.com 基本認証 NPJS    読み取り/書き込み
+#     FTPログ: C:\inetpub\logs\LogFiles / ロールオーバー = 毎日
+# ============================================================================
+
+- name: FTP の役割がインストールされているか確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      [pscustomobject]@{
+        Installed = [bool](Get-WindowsFeature -Name Web-Ftp-Service).Installed
+      }
+  register: r_ftp_feature
+  changed_when: false
+
+- name: FTP の役割が未導入の場合はエラーとする
+  ansible.builtin.fail:
+    msg: "FTP サーバーの役割が未導入です。先に win_features ロールを実行してください（設計書 1.9）。"
+  when: not (r_ftp_feature.output[0].Installed | bool)
+
+- name: FTP ログ出力ディレクトリを作成する
+  ansible.windows.win_file:
+    path: "{{ ftp_log_directory }}"
+    state: directory
+
+- name: FTP サイトの物理パスを作成する
+  ansible.windows.win_file:
+    path: "{{ item.physical_path }}"
+    state: directory
+  loop: "{{ ftp_sites }}"
+  loop_control:
+    label: "{{ item.name }} : {{ item.physical_path }}"
+
+- name: FTP 認証ユーザに物理パスへのアクセス権を付与する
+  ansible.windows.win_acl:
+    path: "{{ item.0.physical_path }}"
+    user: "{{ item.1 }}"
+    rights: Modify
+    type: allow
+    state: present
+    inherit: ContainerInherit, ObjectInherit
+    propagation: None
+  loop: "{{ ftp_sites | subelements('users') }}"
+  loop_control:
+    label: "{{ item.0.physical_path }} <- {{ item.1 }}"
+
+- name: FTP 構成スクリプトを配置する
+  ansible.windows.win_template:
+    src: configure_ftp.ps1.j2
+    dest: "{{ ftp_script_remote_path }}"
+  register: r_ftp_script
+
+- name: FTP サイトを構成する
+  ansible.windows.win_shell: "& '{{ ftp_script_remote_path }}'"
+  args:
+    executable: powershell.exe
+  register: r_ftp_config
+  changed_when: "'CHANGED:' in r_ftp_config.stdout"
+
+- name: FTP 構成結果を表示する
+  ansible.builtin.debug:
+    var: r_ftp_config.stdout_lines
+
+- name: FTP サービスを起動する
+  ansible.windows.win_service:
+    name: ftpsvc
+    start_mode: auto
+    state: started
+
+- name: FTP のファイアウォール規則を有効にする
+  community.windows.win_firewall_rule:
+    name: "FTP Server (FTP Traffic-In)"
+    localport: 21
+    action: allow
+    direction: in
+    protocol: tcp
+    state: present
+    enabled: true
+  failed_when: false              # ファイアウォール無効時は規則更新に失敗しても継続する
+
+- name: FTP サイトの構成を確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Import-Module WebAdministration
+      Get-ChildItem IIS:\Sites | Where-Object { $_.Bindings.Collection.protocol -contains 'ftp' } |
+          ForEach-Object {
+              $p = "IIS:\Sites\$($_.Name)"
+              [pscustomobject]@{
+                Name    = $_.Name
+                State   = $_.State
+                Path    = $_.PhysicalPath
+                Binding = ($_.Bindings.Collection | ForEach-Object { $_.bindingInformation }) -join ','
+                Basic   = (Get-ItemProperty $p -Name 'ftpServer.security.authentication.basicAuthentication.enabled').Value
+                LogDir  = (Get-ItemProperty $p -Name 'ftpServer.logFile.directory').Value
+                LogPeriod = (Get-ItemProperty $p -Name 'ftpServer.logFile.period').Value
+              }
+          }
+  register: r_ftp_status
+  changed_when: false
+
+- name: FTP サイトの構成を表示する
+  ansible.builtin.debug:
+    var: r_ftp_status.output

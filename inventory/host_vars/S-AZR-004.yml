@@ -1,0 +1,10 @@
+---
+# S-AZR-004 : 製品試算システム(RDS)
+computer_name:  "S-AZR-004"
+os_version:     "Windows Server 2022 Datacenter"   # 2025 非対応のため 2022
+server_purpose: "製品試算システム(RDS)"
+vendor_scope_features:
+  - "Web-Server (IIS)"
+  - "Remote-Desktop-Services"
+  - "GPMC"
+handover_after_os_and_domain: true

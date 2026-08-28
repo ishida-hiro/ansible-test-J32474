@@ -1,0 +1,85 @@
+---
+# ============================================================================
+# win_os_basic : コンピュータ名 / タイムゾーン / 言語 / イベントログ
+#   設計書 1.6 言語設定、詳細シート「3.ローカルサーバ」「4.Windowsログ」
+# ============================================================================
+
+- name: コンピュータ名を設定する（設計書 3.ｻｰﾊﾞｰﾏﾈｰｼﾞｬｰ > ｺﾝﾋﾟｭｰﾀ名）
+  ansible.windows.win_hostname:
+    name: "{{ computer_name }}"
+  register: r_hostname
+  notify: Windows を再起動する
+
+- name: 再起動が必要な場合はここで再起動する
+  ansible.builtin.meta: flush_handlers
+
+- name: タイムゾーンを設定する（設計書 ﾀｲﾑｿﾞｰﾝ = (UTC+9:00)大阪、札幌、東京）
+  ansible.windows.win_timezone:
+    timezone: "{{ os_timezone }}"
+
+- name: 日本語言語パックを導入する（英語イメージから構築する場合のみ）
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      if (-not (Get-Module -ListAvailable -Name LanguagePackManagement)) {
+          $Ansible.Result = "LanguagePackManagement module not available"
+          return
+      }
+      $installed = (Get-InstalledLanguage -ErrorAction SilentlyContinue).LanguageId
+      if ($installed -notcontains '{{ os_locale }}') {
+          Install-Language -Language '{{ os_locale }}' -ExcludeFeatures -ErrorAction Stop
+          $Ansible.Changed = $true
+      }
+  when: install_ja_language_pack | bool
+  notify: Windows を再起動する
+
+- name: 地域/言語/ロケールを日本語に設定する（設計書 1.6 言語設定）
+  ansible.windows.win_region:
+    format: "{{ os_locale }}"
+    unicode_language: "{{ os_locale }}"
+    location: "{{ os_geo_location_id }}"
+    copy_settings: "{{ os_copy_settings_to_default | bool }}"
+  register: r_region
+  notify: Windows を再起動する
+
+- name: IE セキュリティ強化の構成を無効化する（Administrators/Users = オフ）
+  ansible.windows.win_regedit:
+    path: "{{ item }}"
+    name: IsInstalled
+    data: 0
+    type: dword
+  loop:
+    - 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{A509B1A7-37EF-4b3f-8CFC-4F3A74704073}'   # Administrators
+    - 'HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{A509B1A8-37EF-4b3f-8CFC-4F3A74704073}'   # Users
+  when: disable_ie_esc | bool
+
+- name: 診断データ(テレメトリ)の送信をオフにする
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+    name: AllowTelemetry
+    data: 0
+    type: dword
+  when: disable_telemetry_ui | bool
+
+- name: Windows ログの最大サイズと上書き動作を設定する（設計書 4.Windowsﾛｸﾞ）
+  ansible.windows.win_eventlog:
+    name: "{{ item.name }}"
+    maximum_size: "{{ item.maximum_size }}"
+    overflow_action: OverwriteAsNeeded      # 必要に応じてイベントを上書きする
+    state: present
+  loop: "{{ eventlog_config }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.maximum_size }})"
+
+- name: 仮想メモリ(ページングファイル)を設定する
+  # 設計書 5.ｼｽﾃﾑのﾌﾟﾛﾊﾟﾃｨ の記載に矛盾があるため既定では実行しない
+  # （docs/03_要確認事項.md B-1 参照）
+  community.windows.win_pagefile:
+    automatic: "{{ pagefile_automatic_managed | bool }}"
+    drive: "{{ pagefile_drive | default(omit) }}"
+    system_managed: "{{ pagefile_system_managed | default(omit) }}"
+    initial_size: "{{ pagefile_initial_size | default(omit) }}"
+    maximum_size: "{{ pagefile_maximum_size | default(omit) }}"
+    override: true
+    state: present
+  when: pagefile_configure | bool

@@ -1,0 +1,46 @@
+---
+# ============================================================================
+# ADサーバ（S-AZR-001 / S-AZR-002）
+#   設計書 1.9「役割と機能」= AD / DNS
+#   旧設計書 シート「2.AD(1号機)」12.役割と機能の追加
+# ============================================================================
+server_role: "ADサーバ"
+
+# DC 昇格モード
+#   new_forest      : 新規フォレストを作成（検証環境／1台目）
+#   additional_dc   : 既存ドメインへ追加DCとして昇格（2台目・本番既存ドメイン）
+ad_mode: additional_dc
+
+windows_features:
+  - AD-Domain-Services            # Active Directory ドメイン サービス
+  - DNS                           # DNS サーバー（DC昇格時にも追加される）
+  - RSAT-ADDS                     # AD DS ツール
+  - RSAT-AD-Tools                 # AD DS および AD LDS ツール
+  - RSAT-AD-AdminCenter           # Active Directory 管理センター
+  - RSAT-ADDS-Tools               # AD DS スナップイン/コマンドラインツール
+  - RSAT-AD-PowerShell            # Windows PowerShell の Active Directory モジュール
+  - RSAT-DNS-Server               # DNS サーバー ツール
+  - GPMC                          # グループ ポリシーの管理
+  - FS-FileServer                 # ファイル サーバー（既定）
+  - Storage-Services              # 記憶域サービス（既定）
+
+# ---- 1.3 ユーザアカウント ---------------------------------------------------
+# ドメインコントローラのためローカルユーザは存在しない（旧設計書 シート「2.AD(1号機)」6.ﾛｰｶﾙﾕｰｻﾞｰ）
+local_users: []
+
+# ---- 1.4 ドライブ構成 -------------------------------------------------------
+# 旧設計書 シート「2.AD(1号機)」8.ﾃﾞｨｽｸの管理: C: 126.51GB / D: 32GB（データ領域）
+data_disks:
+  - disk_number: 2
+    drive_letter: "D"
+    label: "ボリューム"
+    partition_style: mbr
+    file_system: ntfs
+
+# ---- 4. Windows ログ --------------------------------------------------------
+# 旧設計書「2.AD(1号機)」4.Windowsﾛｸﾞ では Security のみ 131072KB。
+# 現行のサンプル設計書には AD シートが含まれないため、旧設計書の値を保持している。
+eventlog_config:
+  - { name: Application, maximum_size: "20480KB" }
+  - { name: Security,    maximum_size: "131072KB" }
+  - { name: System,      maximum_size: "20480KB" }

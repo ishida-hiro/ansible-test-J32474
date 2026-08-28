@@ -1,0 +1,6 @@
+---
+# 設計書 1.16「FTP設定」（S-AZR-007 ファイルサーバのみ）
+ftp_sites: []
+ftp_log_directory: 'C:\inetpub\logs\LogFiles'
+ftp_log_rollover: "Daily"            # ログファイルロールオーバー = 毎日
+ftp_script_remote_path: 'C:\Windows\Temp\configure_ftp.ps1'

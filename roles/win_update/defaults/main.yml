@@ -1,0 +1,11 @@
+---
+# 設計書 1.14「Windows 更新プログラムの適用」
+apply_windows_update: true
+windows_update_categories:
+  - CriticalUpdates
+  - SecurityUpdates
+  - UpdateRollups
+  - Updates
+windows_update_reboot: true
+windows_update_max_rounds: 3      # 適用→再起動を繰り返す最大回数
+disable_auto_update_policy: true  # ローカルGPO「自動更新を構成する」= 無効

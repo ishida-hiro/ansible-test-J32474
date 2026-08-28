@@ -1,0 +1,17 @@
+---
+# ============================================================================
+# 99_verify.yml : 設定値の検証と証跡取得
+#   設計書の各項目について実機の設定値を収集し、設計値と突合せる。
+#   証跡は evidence/<ホスト名>_evidence.txt / .json に保存される。
+#
+#   実行例:
+#     ansible-playbook playbooks/99_verify.yml --ask-vault-pass
+#     ansible-playbook playbooks/99_verify.yml -e verify_fail_on_mismatch=true
+# ============================================================================
+- name: 設定値を検証し証跡を取得する
+  hosts: windows
+  gather_facts: false
+
+  roles:
+    - role: win_verify
+      tags: [verify]

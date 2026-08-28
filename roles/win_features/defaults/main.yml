@@ -1,0 +1,5 @@
+---
+# 設計書 1.9「役割と機能」／詳細シート「12.役割と機能の追加」
+windows_features: []            # 追加する役割・機能（group_vars で定義）
+windows_features_absent: []     # 削除する役割・機能
+features_include_management_tools: true

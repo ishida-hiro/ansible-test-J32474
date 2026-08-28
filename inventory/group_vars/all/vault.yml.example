@@ -1,0 +1,24 @@
+---
+# ============================================================================
+# 認証情報テンプレート
+#   1) 本ファイルを vault.yml にコピーして値を設定
+#   2) ansible-vault encrypt inventory/group_vars/all/vault.yml
+#   ※ 平文のままリポジトリへコミットしないこと
+# ============================================================================
+vault_local_admin_user:      "picklesadmin"
+vault_local_admin_password:  "<ローカル管理者パスワード>"
+
+# ドメイン参加 / DC 昇格用
+vault_domain_admin_user:     "PICKLES-CORP\\Administrator"
+vault_domain_admin_password: "<ドメイン管理者パスワード>"
+vault_safe_mode_password:    "<DSRM(ディレクトリサービス復元モード)パスワード>"
+
+# ローカルユーザ（設計書 1.3 / FTP 認証ユーザ）
+vault_picklesadmin_password: "<picklesadmin パスワード>"
+vault_kansai_password:       "<kansai パスワード>"        # 概要 1.3 No.7 その他ユーザ
+vault_ftp_docways_password:  "<docways パスワード>"
+vault_ftp_npjs_password:     "<NPJS パスワード>"
+
+# タスクスケジューラ実行ユーザ（設計書 1.13）
+vault_task_run_user:         "Administrator"
+vault_task_run_password:     "<タスク実行ユーザのパスワード>"

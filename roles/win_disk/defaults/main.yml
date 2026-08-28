@@ -1,0 +1,12 @@
+---
+# Azure の一時ディスク（既定で D:）を退避してから データディスクに D: を割り当てる
+azure_move_temp_drive: true
+azure_temp_drive_letter: "Z"
+
+# host_vars / group_vars で上書きする
+#   - disk_number    : Get-Disk の Number（OS ディスク=0、一時ディスク=1、データ=2 …）
+#   - drive_letter   : 割り当てるドライブ文字
+#   - label          : ボリュームラベル
+#   - partition_style: mbr / gpt（設計書 8.ﾃﾞｨｽｸの管理 = MBR）
+#   - file_system    : ntfs
+data_disks: []

@@ -1,0 +1,12 @@
+---
+# 設計書 1.13「タスクスケジューラ」
+#   name       : タスク名
+#   program    : 実行プログラム
+#   arguments  : 引数（任意）
+#   trigger    : { type: once|daily|weekly|boot|logon, start_boundary: "YYYY-MM-DDTHH:MM:SS" }
+#   skip       : true を指定したタスクは登録対象から除外する（今回対象外のタスク）
+scheduled_tasks: []
+
+task_folder: '\'                     # タスクスケジューラライブラリ直下
+task_run_level: highest              # 最上位の特権で実行する
+task_logon_type: password            # ユーザがログオンしているかどうかにかかわらず実行する

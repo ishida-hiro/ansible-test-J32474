@@ -1,0 +1,56 @@
+---
+# ============================================================================
+# win_features : 役割と機能の追加
+#   設計書 1.9「役割と機能」
+#     No.1,2 : AD / DNS            → group_vars/dc.yml
+#     No.7   : FSRM / FTP          → group_vars/fileserver.yml
+#     No.3〜6: アプリベンダー様にて対応いただく想定 → 追加なし
+#   詳細シート「12.役割と機能の追加」の ■ 項目に対応する
+# ============================================================================
+
+- name: 追加対象の役割と機能を表示する
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} ({{ server_role | default('-') }}) :
+      {{ windows_features | join(', ') if windows_features | length > 0
+         else '追加なし（アプリベンダー様対応範囲）' }}
+
+- name: 役割と機能を追加する（管理ツールを含む）
+  ansible.windows.win_feature:
+    name: "{{ windows_features }}"
+    state: present
+    include_management_tools: "{{ features_include_management_tools | bool }}"
+    include_sub_features: false
+  register: r_feature
+  when: windows_features | length > 0
+
+- name: 不要な役割と機能を削除する
+  ansible.windows.win_feature:
+    name: "{{ windows_features_absent }}"
+    state: absent
+  register: r_feature_absent
+  when: windows_features_absent | length > 0
+
+- name: 役割と機能の追加により再起動が必要な場合は再起動する
+  ansible.windows.win_reboot:
+    reboot_timeout: 1800
+    post_reboot_delay: 30
+  when: >-
+    (r_feature.reboot_required | default(false)) or
+    (r_feature_absent.reboot_required | default(false))
+
+- name: ベンダー様対応範囲の役割と機能を注意喚起する（設計書 1.9 備考）
+  ansible.builtin.debug:
+    msg: >-
+      本 Playbook では導入しない（アプリベンダー様にて対応）:
+      {{ vendor_scope_features | join(', ') }}
+  when: vendor_scope_features | default([]) | length > 0
+
+- name: インストール済みの役割と機能を確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Get-WindowsFeature | Where-Object Installed |
+          Select-Object Name, DisplayName | Sort-Object Name
+  register: r_installed_features
+  changed_when: false

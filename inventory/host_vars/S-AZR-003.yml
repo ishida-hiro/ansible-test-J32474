@@ -1,0 +1,11 @@
+---
+# S-AZR-003 : TimePro VG
+computer_name:  "S-AZR-003"
+os_version:     "Windows Server 2025 Datacenter"
+server_purpose: "TimePro VG"
+# 設計書 1.9 備考: IIS / XPS viewer / System Data Archiver はアプリベンダー様対応
+vendor_scope_features:
+  - "Web-Server (IIS)"
+  - "XPS-Viewer"
+  - "System-DataArchiver"
+handover_after_os_and_domain: true   # 設計書 1.2: OS初期設定+ドメイン参加後にお引渡し

@@ -1,0 +1,53 @@
+---
+# ============================================================================
+# win_network : ネットワーク設定
+#   設計書 1.5「ネットワーク設定」／詳細シート「10.ﾈｯﾄﾜｰｸ設定」
+#     ・IPv6 は無効とする
+#     ・IP/DNS は Azure(DHCP)から配布されるため OS 上は自動取得のまま
+#       （設計書 特記事項「ﾈｯﾄﾜｰｸ設定はAzureから管理するため、OS上は自動設定」）
+# ============================================================================
+
+- name: IPv6 を無効化する（レジストリ DisabledComponents = 0xFF）
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters'
+    name: DisabledComponents
+    data: 255                       # 0xFF = すべてのインターフェイスで IPv6 を無効
+    type: dword
+  when: disable_ipv6 | bool
+  notify: Windows を再起動する
+
+- name: NIC から「インターネット プロトコル バージョン 6 (TCP/IPv6)」のバインドを解除する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $bindings = Get-NetAdapterBinding -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Enabled -eq $true }
+      foreach ($b in $bindings) {
+          Disable-NetAdapterBinding -Name $b.Name -ComponentID 'ms_tcpip6' -ErrorAction Stop
+          $Ansible.Changed = $true
+      }
+  when: disable_ipv6 | bool
+
+- name: IP/DNS の設定値を記録する（Azure 管理のため変更はしない）
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Get-NetIPConfiguration | Select-Object InterfaceAlias,
+          @{n='IPv4';e={ ($_.IPv4Address.IPAddress) -join ',' }},
+          @{n='GW';e={ ($_.IPv4DefaultGateway.NextHop) -join ',' }},
+          @{n='DNS';e={ ($_.DNSServer | Where-Object AddressFamily -eq 2 |
+                         Select-Object -ExpandProperty ServerAddresses) -join ',' }}
+  register: r_ipconfig
+  changed_when: false
+
+- name: 現在のネットワーク構成を表示する
+  ansible.builtin.debug:
+    var: r_ipconfig.output
+
+- name: 静的な名前解決エントリを hosts ファイルへ登録する（設計書 11.hosts = 記載なし）
+  ansible.windows.win_hosts:
+    state: present
+    canonical_name: "{{ item.name }}"
+    ip_address: "{{ item.ip }}"
+  loop: "{{ hosts_entries }}"
+  when: hosts_entries | length > 0

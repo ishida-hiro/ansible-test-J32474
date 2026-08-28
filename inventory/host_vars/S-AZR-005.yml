@@ -1,0 +1,9 @@
+---
+# S-AZR-005 : 製品電算システム(SQL)
+computer_name:  "S-AZR-005"
+os_version:     "Windows Server 2022 Datacenter"
+server_purpose: "製品電算システム(SQL)"
+vendor_scope_features:
+  - "GPMC"
+  - "RSAT-AD-Tools"
+handover_after_os_and_domain: true

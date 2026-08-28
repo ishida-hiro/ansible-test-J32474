@@ -1,0 +1,5 @@
+---
+# 検証・証跡取得
+evidence_dir_remote: 'C:\build_evidence'
+evidence_dir_local: "{{ playbook_dir }}/../evidence"
+verify_fail_on_mismatch: false     # true にすると設計値と不一致でタスクを失敗させる

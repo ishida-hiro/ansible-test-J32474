@@ -1,0 +1,10 @@
+---
+# ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: ansible.windows      # win_feature / win_updates / win_regedit / win_timezone / win_region ほか
+    version: ">=3.0.0"   # win_timezone / win_region / win_eventlog / win_firewall / win_hosts が移管済み
+  - name: community.windows    # win_pagefile / win_partition / win_format / win_scheduled_task ほか
+    version: ">=3.0.0"
+  - name: microsoft.ad         # ドメイン参加 / DC 昇格
+    version: ">=1.7.0"
+  - name: ansible.utils

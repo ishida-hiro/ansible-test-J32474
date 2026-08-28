@@ -1,0 +1,28 @@
+---
+# ============================================================================
+# 03_role_setup.yml : 役割固有設定
+#   設計書 1.13 タスクスケジューラ / 1.16 FTP設定（ともに S-AZR-007）
+# ============================================================================
+
+- name: ファイルサーバの FTP を構成する
+  hosts: fileserver
+  gather_facts: false
+
+  roles:
+    - role: win_ftp             # 1.16 FTP設定
+      tags: [ftp]
+    - role: win_tasks           # 1.13 タスクスケジューラ
+      tags: [tasks]
+
+- name: お引渡し対象サーバの状態を確認する
+  hosts: member
+  gather_facts: false
+
+  tasks:
+    - name: アプリベンダー様お引渡し前提条件を確認する（設計書 1.2 / 1.9）
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} ({{ server_purpose }}) :
+          OS初期設定・ドメイン参加まで完了。
+          追加の役割と機能（{{ vendor_scope_features | default([]) | join(', ') or '無し' }}）は
+          アプリベンダー様にて対応いただく想定です。

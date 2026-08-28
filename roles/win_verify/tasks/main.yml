@@ -1,0 +1,105 @@
+---
+# ============================================================================
+# win_verify : 設定値の検証と証跡取得
+#   設計書の各項目に対して実機の設定値を収集し、設計値との突合せを行う。
+#   証跡は リモート {{ evidence_dir_remote }} と ローカル evidence/ に保存する。
+# ============================================================================
+
+- name: 証跡出力ディレクトリを作成する（リモート）
+  ansible.windows.win_file:
+    path: "{{ evidence_dir_remote }}"
+    state: directory
+
+- name: 設定値収集スクリプトを配置する
+  ansible.windows.win_template:
+    src: collect_evidence.ps1.j2
+    dest: '{{ evidence_dir_remote }}\collect_evidence.ps1'
+
+- name: 設定値を収集する
+  ansible.windows.win_shell: "& '{{ evidence_dir_remote }}\\collect_evidence.ps1'"
+  args:
+    executable: powershell.exe
+  register: r_evidence
+  changed_when: false
+
+- name: 収集結果を変数へ取り込む
+  ansible.builtin.set_fact:
+    ev: "{{ r_evidence.stdout | from_json }}"
+
+# ---- 設計値との突合せ -------------------------------------------------------
+- name: 設計値と実機設定値を突合せる
+  ansible.builtin.set_fact:
+    verify_results: >-
+      {{
+        [
+          {'項目': '1.1 OSバージョン',         '設計値': os_version | default('-'),                      '実機値': ev.OSVersion},
+          {'項目': '3. コンピュータ名',         '設計値': computer_name | default(inventory_hostname),   '実機値': ev.ComputerName},
+          {'項目': '1.2 ドメイン参加',          '設計値': ad_domain_name,                                '実機値': ev.Domain},
+          {'項目': '1.6 タイムゾーン',          '設計値': os_timezone,                                   '実機値': ev.TimeZone},
+          {'項目': '1.6 システムロケール',      '設計値': os_locale,                                     '実機値': ev.SystemLocale},
+          {'項目': '1.5 IPv6無効(0xFF=255)',    '設計値': 255 if disable_ipv6 | bool else 0,             '実機値': ev.IPv6Disabled | default(0, true)},
+          {'項目': '1.5 IPv6バインド有効数',    '設計値': 0 if disable_ipv6 | bool else '-',             '実機値': ev.IPv6Binding},
+          {'項目': '1.12 UAC(EnableLUA)',       '設計値': 0 if disable_uac | bool else 1,                '実機値': ev.EnableLUA | default(1, true)},
+          {'項目': '1.12 luafv(Start)',         '設計値': 4 if disable_uac | bool else 2,                '実機値': ev.LuafvStart | default(2, true)},
+          {'項目': '1.11 Defender無効(ポリシー)','設計値': 1 if disable_defender_by_policy | bool else '-', '実機値': ev.DefenderPolicy | default('未設定', true)},
+          {'項目': '1.7 RDP許可(fDeny=0)',      '設計値': 0 if enable_rdp | bool else 1,                 '実機値': ev.DenyTSConnections | default(1, true)},
+          {'項目': '1.7 NLA要求',               '設計値': 1 if rdp_require_nla | bool else 0,            '実機値': ev.UserAuthentication | default(0, true)},
+          {'項目': '1.14 自動更新の構成=無効',  '設計値': 1 if disable_auto_update_policy | bool else '-', '実機値': ev.NoAutoUpdate | default('未設定', true)}
+        ]
+      }}
+
+- name: 突合せ結果を表示する
+  ansible.builtin.debug:
+    msg: >-
+      {{ '%-28s 設計=%-40s 実機=%-40s %s' | format(
+           item['項目'], item['設計値'] | string, item['実機値'] | string,
+           'OK' if (item['設計値'] | string) == (item['実機値'] | string) else '要確認') }}
+  loop: "{{ verify_results }}"
+  loop_control:
+    label: "{{ item['項目'] }}"
+
+- name: 不一致がある場合に一覧を表示する
+  ansible.builtin.debug:
+    msg: "【要確認】{{ item['項目'] }} : 設計値={{ item['設計値'] }} / 実機値={{ item['実機値'] }}"
+  loop: "{{ verify_results }}"
+  loop_control:
+    label: "{{ item['項目'] }}"
+  when:
+    - (item['設計値'] | string) != '-'
+    - (item['設計値'] | string) != (item['実機値'] | string)
+
+- name: 設計値と不一致の項目がある場合は失敗させる（verify_fail_on_mismatch = true 時）
+  ansible.builtin.assert:
+    that:
+      - (item['設計値'] | string) == (item['実機値'] | string)
+    fail_msg: "{{ item['項目'] }} : 設計値={{ item['設計値'] }} / 実機値={{ item['実機値'] }}"
+    quiet: true
+  loop: "{{ verify_results }}"
+  loop_control:
+    label: "{{ item['項目'] }}"
+  when:
+    - verify_fail_on_mismatch | bool
+    - (item['設計値'] | string) != '-'
+
+# ---- 証跡の回収 -------------------------------------------------------------
+- name: 証跡格納ディレクトリを作成する（ローカル）
+  ansible.builtin.file:
+    path: "{{ evidence_dir_local }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: 証跡ファイルをローカルへ回収する
+  ansible.builtin.fetch:
+    src: '{{ evidence_dir_remote }}\{{ inventory_hostname }}_evidence.{{ item }}'
+    dest: "{{ evidence_dir_local }}/{{ inventory_hostname }}_evidence.{{ item }}"
+    flat: true
+  loop:
+    - json
+    - txt
+
+- name: 証跡の保存先を表示する
+  ansible.builtin.debug:
+    msg: "証跡を回収しました: {{ evidence_dir_local }}/{{ inventory_hostname }}_evidence.txt"

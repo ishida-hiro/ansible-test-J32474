@@ -1,0 +1,94 @@
+---
+# ============================================================================
+# win_tasks : タスクスケジューラ
+#   設計書 1.13 タスクスケジューラ（S-AZR-007 ファイルサーバのみ 8件）
+#     実行ユーザ : Administrator
+#     スケジュール: 指定日時 / 毎日
+# ============================================================================
+
+- name: 今回対象外のタスクを除外して登録対象を確定する
+  ansible.builtin.set_fact:
+    scheduled_tasks_target: "{{ scheduled_tasks | selectattr('skip', 'undefined') | list }}"
+    scheduled_tasks_skipped: "{{ scheduled_tasks | selectattr('skip', 'defined') | list }}"
+
+- name: 登録対象タスクを表示する
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} : タスク {{ scheduled_tasks_target | length }} 件を登録する
+      （対象外 {{ scheduled_tasks_skipped | length }} 件）
+
+- name: 今回対象外としたタスクを表示する
+  ansible.builtin.debug:
+    msg: "【今回対象外】{{ item.name }} : {{ item.skip_reason | default('スコープ外のため登録しない') }}"
+  loop: "{{ scheduled_tasks_skipped }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: 実行プログラムの配置先ディレクトリを作成する
+  ansible.windows.win_file:
+    path: "{{ item.program | win_dirname }}"
+    state: directory
+  loop: "{{ scheduled_tasks_target }}"
+  loop_control:
+    label: "{{ item.program | win_dirname }}"
+  when: create_task_program_dirs | default(false) | bool
+
+- name: 実行プログラムの存在を確認する
+  ansible.windows.win_stat:
+    path: "{{ item.program }}"
+  loop: "{{ scheduled_tasks_target }}"
+  loop_control:
+    label: "{{ item.program }}"
+  register: r_task_program
+
+- name: 未配置の実行プログラムを警告する（バッチはアプリ側で配置される想定）
+  ansible.builtin.debug:
+    msg: >-
+      【要確認】実行プログラムが未配置です: {{ item.item.program }}
+      （タスクは登録するが、実行時にエラーとなるため配置を確認すること）
+  loop: "{{ r_task_program.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: not item.stat.exists
+
+- name: スケジュールタスクを登録する
+  community.windows.win_scheduled_task:
+    name: "{{ item.name }}"
+    path: "{{ task_folder }}"
+    description: "{{ item.note | default('設計書 1.13 タスクスケジューラ') }}"
+    actions:
+      - path: "{{ item.program }}"
+        arguments: "{{ item.arguments | default(omit) }}"
+        working_directory: "{{ item.program | win_dirname }}"
+    triggers:
+      - type: "{{ item.trigger.type }}"
+        start_boundary: "{{ item.trigger.start_boundary }}"
+    username: "{{ vault_task_run_user }}"
+    password: "{{ vault_task_run_password }}"
+    logon_type: "{{ task_logon_type }}"
+    run_level: "{{ task_run_level }}"
+    enabled: true
+    state: present
+  loop: "{{ scheduled_tasks_target }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.trigger.type }} {{ item.trigger.start_boundary }})"
+  no_log: true                        # 実行ユーザのパスワードをログへ出力しない
+
+- name: 登録済みタスクを確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Get-ScheduledTask -TaskPath '{{ task_folder }}' -ErrorAction SilentlyContinue |
+          Where-Object { $_.TaskName -in @('{{ scheduled_tasks_target | map(attribute="name") | join("','") }}') } |
+          Select-Object TaskName, State,
+              @{n='UserId';e={ $_.Principal.UserId }},
+              @{n='Execute';e={ ($_.Actions | ForEach-Object { $_.Execute }) -join ';' }},
+              @{n='Trigger';e={ ($_.Triggers | ForEach-Object { "$($_.CimClass.CimClassName) $($_.StartBoundary)" }) -join ';' }}
+  register: r_tasks
+  changed_when: false
+  when: scheduled_tasks_target | length > 0
+
+- name: 登録済みタスクを表示する
+  ansible.builtin.debug:
+    var: r_tasks.output
+  when: scheduled_tasks_target | length > 0

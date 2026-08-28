@@ -1,0 +1,38 @@
+---
+# ============================================================================
+# 01_os_initial.yml : OS 初期設定
+#   設計書 1.4 ドライブ構成 / 1.5 ネットワーク / 1.6 言語 / 1.7 リモート接続
+#           1.9 役割と機能 / 1.10 ファイアウォール / 1.11 Defender
+#           1.12 UAC / 1.14 Windows Update / 1.15 サービス
+# ============================================================================
+- name: OS 初期設定を行う
+  hosts: windows
+  gather_facts: true
+  serial: "{{ os_initial_serial | default(0) }}"   # 0 = 全台並列
+
+  roles:
+    - role: win_disk        # 1.4  ドライブ構成
+      tags: [disk]
+    - role: win_network     # 1.5  ネットワーク設定（IPv6無効化 / hosts）
+      tags: [network]
+    - role: win_os_basic    # 1.6  コンピュータ名 / 言語 / イベントログ / ページファイル
+      tags: [os_basic]
+    - role: win_localuser   # 1.3  ローカルユーザ
+      tags: [localuser]
+    - role: win_remote      # 1.7  リモートデスクトップ
+      tags: [remote]
+    - role: win_security    # 1.10 / 1.11 / 1.12 ファイアウォール・Defender・UAC
+      tags: [security]
+    - role: win_features    # 1.9  役割と機能
+      tags: [features]
+    - role: win_services    # 1.15 サービス設定
+      tags: [services]
+    - role: win_update      # 1.14 Windows 更新プログラム
+      tags: [update]
+
+  post_tasks:
+    - name: 設定反映のため再起動する
+      ansible.windows.win_reboot:
+        reboot_timeout: 1800
+        post_reboot_delay: 30
+      tags: [reboot]

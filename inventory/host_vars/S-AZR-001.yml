@@ -1,0 +1,12 @@
+---
+# S-AZR-001 : ADサーバ(1号機)  ※旧設計書 シート「2.AD(1号機)」
+computer_name:   "S-AZR-001"
+os_version:      "Windows Server 2025 Datacenter"
+server_purpose:  "ADサーバ(1号機)"
+
+# 操作マスタ(FSMO)のPDCを保持 → 外部NTPと手動同期（設計書 1.8 / 旧シート2 13.NTP設定）
+is_pdc_emulator: true
+ntp_servers:     "ntp.nict.jp,0x8"
+
+# 検証環境で新規フォレストを作る場合は new_forest に変更する
+ad_mode: additional_dc

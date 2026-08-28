@@ -1,0 +1,94 @@
+# ============================================================================
+# 設定値収集スクリプト（Ansible が生成 / 設計書との突合せ用の証跡を出力する）
+# ============================================================================
+$ErrorActionPreference = 'SilentlyContinue'
+$dir = '{{ evidence_dir_remote }}'
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+
+$cs   = Get-CimInstance Win32_ComputerSystem
+$os   = Get-CimInstance Win32_OperatingSystem
+$tz   = Get-TimeZone
+
+$result = [ordered]@{
+    # 2.OS情報 / 3.ｻｰﾊﾞｰﾏﾈｰｼﾞｬｰ
+    ComputerName   = $env:COMPUTERNAME
+    OSVersion      = ($os.Caption -replace '^Microsoft ', '')
+    OSBuild        = $os.Version
+    PartOfDomain   = $cs.PartOfDomain
+    Domain         = $cs.Domain
+    DomainRole     = $cs.DomainRole
+    # 1.6 言語設定
+    TimeZone       = $tz.Id
+    TimeZoneName   = $tz.DisplayName
+    SystemLocale   = (Get-WinSystemLocale).Name
+    UserLocale     = (Get-Culture).Name
+    GeoId          = (Get-WinHomeLocation).GeoId
+    # 1.5 ネットワーク設定
+    IPv6Disabled   = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters').DisabledComponents
+    IPv6Binding    = (@(Get-NetAdapterBinding -ComponentID ms_tcpip6 | Where-Object Enabled).Count)
+    IPConfig       = @(Get-NetIPConfiguration | ForEach-Object {
+                        "$($_.InterfaceAlias) $($_.IPv4Address.IPAddress)/$($_.IPv4Address.PrefixLength) GW=$($_.IPv4DefaultGateway.NextHop) DNS=$(($_.DNSServer | Where-Object AddressFamily -eq 2).ServerAddresses -join ';')" })
+    # 1.10 ファイアウォール
+    Firewall       = @(Get-NetFirewallProfile | ForEach-Object { "$($_.Name)=$($_.Enabled) log=$($_.LogFileName) size=$($_.LogMaxSizeKilobytes) blocked=$($_.LogBlocked) allowed=$($_.LogAllowed)" })
+    # 1.11 Windows Defender
+    DefenderPolicy = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender').DisableAntiSpyware
+    # 1.12 UAC
+    EnableLUA      = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').EnableLUA
+    LuafvStart     = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\luafv').Start
+    # 1.7 リモート接続
+    DenyTSConnections  = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server').fDenyTSConnections
+    UserAuthentication = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp').UserAuthentication
+    # 1.14 Windows Update
+    NoAutoUpdate   = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU').NoAutoUpdate
+    HotFix         = @(Get-HotFix | Sort-Object InstalledOn | ForEach-Object { "$($_.HotFixID) $($_.Description) $($_.InstalledOn.ToString('yyyy/MM/dd'))" })
+    # 4.Windowsﾛｸﾞ
+    EventLog       = @('Application','Security','System' | ForEach-Object {
+                        $l = Get-WinEvent -ListLog $_; "$($_) max=$([int]($l.MaximumSizeInBytes/1KB))KB mode=$($l.LogMode)" })
+    # 5.ｼｽﾃﾑのﾌﾟﾛﾊﾟﾃｨ（仮想メモリ）
+    PageFile       = @(Get-CimInstance Win32_PageFileSetting | ForEach-Object { "$($_.Name) init=$($_.InitialSize) max=$($_.MaximumSize)" })
+    PageFileAuto   = (Get-CimInstance Win32_ComputerSystem).AutomaticManagedPagefile
+    # 6.ﾛｰｶﾙﾕｰｻﾞｰ / 7.ﾛｰｶﾙｸﾞﾙｰﾌﾟ
+    LocalUsers     = @(Get-LocalUser | ForEach-Object { "$($_.Name) enabled=$($_.Enabled) neverExpires=$($_.PasswordNeverExpires)" })
+    Administrators = @(Get-LocalGroupMember -Group Administrators | ForEach-Object { $_.Name })
+    # 8.ﾃﾞｨｽｸの管理
+    Volumes        = @(Get-Volume | Where-Object DriveLetter | ForEach-Object { "$($_.DriveLetter): [$($_.FileSystemLabel)] $($_.FileSystem) $([math]::Round($_.Size/1GB,2))GB" })
+    Partitions     = @(Get-Disk | ForEach-Object { "Disk$($_.Number) $($_.PartitionStyle) $([math]::Round($_.Size/1GB,2))GB $($_.OperationalStatus)" })
+    # 12.役割と機能
+    Features       = @(Get-WindowsFeature | Where-Object Installed | ForEach-Object { $_.Name })
+    # 13.NTP設定
+    NtpConfig      = @(w32tm.exe /query /configuration | Where-Object { $_ -match 'NtpServer|Type:' })
+    NtpStatus      = @(w32tm.exe /query /status | Where-Object { $_ -match 'ソース|Source|Stratum' })
+    # 1.15 / 17.ｻｰﾋﾞｽ一覧
+    Services       = @(Get-Service | Sort-Object Name | ForEach-Object { "$($_.Name)|$($_.Status)|$($_.StartType)" })
+    # 1.13 タスクスケジューラ
+    ScheduledTasks = @(Get-ScheduledTask -TaskPath '\' | ForEach-Object { "$($_.TaskName)|$($_.State)|$($_.Principal.UserId)|$(($_.Actions | ForEach-Object { $_.Execute }) -join ';')|$(($_.Triggers | ForEach-Object { $_.StartBoundary }) -join ';')" })
+    # 1.16 FTP設定
+    FtpSites       = @(if (Get-Module -ListAvailable WebAdministration) {
+                        Import-Module WebAdministration
+                        Get-ChildItem IIS:\Sites | Where-Object { $_.Bindings.Collection.protocol -contains 'ftp' } |
+                            ForEach-Object { "$($_.Name)|$($_.State)|$($_.PhysicalPath)|$(($_.Bindings.Collection | ForEach-Object { $_.bindingInformation }) -join ',')" } })
+    # 9.導入ｿﾌﾄｳｪｱ
+    Software       = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                                        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' |
+                        Where-Object DisplayName | ForEach-Object { "$($_.DisplayName) $($_.DisplayVersion)" } | Sort-Object -Unique)
+    CollectedAt    = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+}
+
+$json = $result | ConvertTo-Json -Depth 5
+$json | Out-File -FilePath (Join-Path $dir '{{ inventory_hostname }}_evidence.json') -Encoding UTF8
+
+# 人が読む用のテキスト証跡
+$txt = New-Object System.Text.StringBuilder
+[void]$txt.AppendLine("==== {{ inventory_hostname }} ({{ server_purpose | default('-') }}) 設定値証跡 ====")
+foreach ($k in $result.Keys) {
+    $v = $result[$k]
+    if ($v -is [array]) {
+        [void]$txt.AppendLine("[$k]")
+        foreach ($line in $v) { [void]$txt.AppendLine("    $line") }
+    } else {
+        [void]$txt.AppendLine("$k : $v")
+    }
+}
+$txt.ToString() | Out-File -FilePath (Join-Path $dir '{{ inventory_hostname }}_evidence.txt') -Encoding UTF8
+
+Write-Output $json

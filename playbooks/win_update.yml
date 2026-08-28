@@ -1,0 +1,13 @@
+---
+# ============================================================================
+# win_update.yml : Windows 更新プログラムの適用のみを実行する（運用時用）
+#   実行例: ansible-playbook playbooks/win_update.yml -l S-AZR-005 --ask-vault-pass
+# ============================================================================
+- name: Windows 更新プログラムを適用する
+  hosts: windows
+  gather_facts: false
+  serial: 1                        # 業務影響を抑えるため 1 台ずつ適用する
+
+  roles:
+    - role: win_update
+      tags: [update]

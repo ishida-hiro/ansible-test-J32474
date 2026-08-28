@@ -1,0 +1,70 @@
+---
+# ============================================================================
+# win_disk : ドライブ構成
+#   設計書 1.4「ドライブ構成」／詳細シート「8.ﾃﾞｨｽｸの管理」
+#     C: システム領域(128GB) / D: データ領域 / パーティション MBR / NTFS
+#   ※Azure Windows VM は一時ディスク(Temporary Storage)が既定で D: を占有するため、
+#     先に Z: へ退避してからデータディスクへ D: を割り当てる。
+# ============================================================================
+
+- name: 一時ディスク(Temporary Storage)のドライブ文字を退避する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $target = '{{ azure_temp_drive_letter }}'
+      $temp = Get-Volume | Where-Object {
+          $_.FileSystemLabel -eq 'Temporary Storage' -and $_.DriveLetter
+      }
+      foreach ($v in $temp) {
+          if ($v.DriveLetter -eq $target) { continue }
+          $part = Get-Partition -DriveLetter $v.DriveLetter
+          Set-Partition -InputObject $part -NewDriveLetter $target -ErrorAction Stop
+          $Ansible.Changed = $true
+          $Ansible.Result  = "$($v.DriveLetter): -> ${target}:"
+      }
+  when: azure_move_temp_drive | bool
+
+- name: データディスクをオンラインにして初期化する（設計書 ﾊﾟｰﾃｨｼｮﾝｽﾀｲﾙ = MBR）
+  community.windows.win_initialize_disk:
+    disk_number: "{{ item.disk_number }}"
+    style: "{{ item.partition_style | default('mbr') }}"
+    online: true
+  loop: "{{ data_disks }}"
+  loop_control:
+    label: "Disk{{ item.disk_number }} ({{ item.partition_style | default('mbr') }})"
+
+- name: データディスクにパーティションを作成しドライブ文字を割り当てる
+  community.windows.win_partition:
+    disk_number: "{{ item.disk_number }}"
+    partition_number: 1
+    drive_letter: "{{ item.drive_letter }}"
+    partition_size: -1              # -1 = ディスクの最大サイズを使用する
+    active: false
+    state: present
+  loop: "{{ data_disks }}"
+  loop_control:
+    label: "Disk{{ item.disk_number }} -> {{ item.drive_letter }}:"
+
+- name: データディスクを NTFS でフォーマットする（設計書 ﾌｧｲﾙｼｽﾃﾑ = NTFS）
+  community.windows.win_format:
+    drive_letter: "{{ item.drive_letter }}"
+    file_system: "{{ item.file_system | default('ntfs') }}"
+    new_label: "{{ item.label | default('ボリューム') }}"
+    large_frs: false
+  loop: "{{ data_disks }}"
+  loop_control:
+    label: "{{ item.drive_letter }}: [{{ item.label | default('ボリューム') }}]"
+
+- name: ドライブ構成を確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Get-Volume | Where-Object DriveLetter |
+          Select-Object DriveLetter, FileSystemLabel, FileSystem,
+              @{n='SizeGB';e={ [math]::Round($_.Size / 1GB, 2) }}
+  register: r_volumes
+  changed_when: false
+
+- name: ドライブ構成を表示する
+  ansible.builtin.debug:
+    var: r_volumes.output

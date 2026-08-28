@@ -1,0 +1,25 @@
+---
+# ansible-lint 設定
+#   実行例: ansible-lint --offline
+profile: basic
+
+exclude_paths:
+  - evidence/
+  - logs/
+  - terraform/
+
+skip_list:
+  # 変数名にロール名プレフィックスを付けない。
+  # 設計書「1.概要」の項目をそのまま変数名としており、複数ロールから
+  # 同一の変数（例: disable_uac / firewall_state）を参照するため。
+  - var-naming[no-role-prefix]
+  # インベントリ・変数ファイルは可読性のためコロン/カンマ後を桁揃えしている。
+  - yaml[colons]
+  - yaml[commas]
+  # run_once は linear ストラテジ（既定）での使用を前提としている。
+  - run-once[task]
+
+# 設計書の項目名をそのままタスク名にしているため、日本語で始まるタスク名を許容する。
+# （name[casing] は「大文字始まり」を要求するが、日本語には大小の区別がない）
+warn_list:
+  - name[casing]

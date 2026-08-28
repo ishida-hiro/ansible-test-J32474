@@ -1,0 +1,21 @@
+# ---- Ansible ----------------------------------------------------------------
+logs/
+evidence/
+*.retry
+inventory/group_vars/all/vault.yml
+
+# ---- Terraform --------------------------------------------------------------
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+# 変数ファイルは環境固有の値を含むためコミットしない（.example は対象外）
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+# .terraform.lock.hcl はバージョン固定のためコミットする
+
+# ---- 生成物 -----------------------------------------------------------------
+*.tmp

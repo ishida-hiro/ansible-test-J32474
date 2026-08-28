@@ -1,0 +1,7 @@
+---
+# S-AZR-006 : DocWays FAX
+computer_name:  "S-AZR-006"
+os_version:     "Windows Server 2022 Datacenter"
+server_purpose: "DocWays FAX"
+vendor_scope_features: []
+handover_after_os_and_domain: true

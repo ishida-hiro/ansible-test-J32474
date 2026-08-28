@@ -1,0 +1,107 @@
+---
+# ============================================================================
+# win_security : ファイアウォール / Windows Defender / UAC
+#   設計書 1.10 ファイアウォールは NSG で制御するため無効
+#   設計書 1.11 Cortex XDR 導入のため Defender をグループポリシーで無効化
+#   設計書 1.12 / UAC の無効化（EnableLUA / luafv）
+#     ファイルサーバ=シート8 13. / ADサーバ=旧シート2 14.
+#   ローカルグループポリシー（ファイルサーバ=シート8 15. / ADサーバ=旧シート2 16.）
+# ============================================================================
+
+# ---- 1.10 Windows Defender ファイアウォール --------------------------------
+- name: ファイアウォールのログ設定をカスタマイズする（設計書 ﾛｸﾞ - ｶｽﾀﾏｲｽﾞ）
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $profiles = @('{{ firewall_profiles | join("','") }}')
+      $want = @{
+          LogFileName         = '{{ firewall_log_path }}'
+          LogMaxSizeKilobytes = {{ firewall_log_size_kb }}
+          LogBlocked          = '{{ 'True' if firewall_log_dropped | bool else 'False' }}'
+          LogAllowed          = '{{ 'True' if firewall_log_allowed | bool else 'False' }}'
+          NotifyOnListen      = '{{ 'True' if firewall_notifications | bool else 'False' }}'
+      }
+      foreach ($p in $profiles) {
+          $cur = Get-NetFirewallProfile -Name $p
+          $diff = @{}
+          foreach ($k in $want.Keys) {
+              if ("$($cur.$k)" -ne "$($want[$k])") { $diff[$k] = $want[$k] }
+          }
+          if ($diff.Count -gt 0) {
+              Set-NetFirewallProfile -Name $p @diff -ErrorAction Stop
+              $Ansible.Changed = $true
+          }
+      }
+  when: firewall_customize_logging | bool
+
+- name: ファイアウォールを無効化する（設計書 1.10 NSG で制御するため無効）
+  ansible.windows.win_firewall:
+    state: "{{ firewall_state }}"
+    profiles: "{{ firewall_profiles }}"
+
+# ---- 1.11 Windows Defender --------------------------------------------------
+- name: Defender ウイルス対策をローカルグループポリシーで無効化する
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender'
+    name: DisableAntiSpyware
+    data: 1
+    type: dword
+  when: disable_defender_by_policy | bool
+  notify: Windows を再起動する
+
+- name: Defender のリアルタイム保護をポリシーで無効化する
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection'
+    name: "{{ item }}"
+    data: 1
+    type: dword
+  loop:
+    - DisableRealtimeMonitoring
+    - DisableBehaviorMonitoring
+    - DisableOnAccessProtection
+    - DisableScanOnRealtimeEnable
+  when: disable_defender_by_policy | bool
+
+- name: ファイアウォールとネットワーク保護の通知をオフにする
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows Defender Security Center\Notifications'
+    name: DisableNotifications
+    data: 1
+    type: dword
+  when: not firewall_notifications | bool
+
+# ---- 1.12 ユーザアカウント制御（シート8 13. / 旧シート2 14.UACの無効化） ----
+- name: UAC を無効化する（EnableLUA = 0）
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+    name: EnableLUA
+    data: 0
+    type: dword
+  when: disable_uac | bool
+  notify: Windows を再起動する
+
+- name: UAC File Virtualization サービスの起動エラーを抑制する（luafv Start = 4）
+  ansible.windows.win_regedit:
+    path: 'HKLM:\SYSTEM\CurrentControlSet\Services\luafv'
+    name: Start
+    data: 4                        # 4 = 無効
+    type: dword
+  when: disable_uac | bool
+  notify: Windows を再起動する
+
+- name: セキュリティ設定を確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      [pscustomobject]@{
+        Firewall  = ((Get-NetFirewallProfile | ForEach-Object { "$($_.Name)=$($_.Enabled)" }) -join ' ')
+        EnableLUA = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').EnableLUA
+        luafvStart = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\luafv').Start
+        DefenderPolicy = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender' -ErrorAction SilentlyContinue).DisableAntiSpyware
+      }
+  register: r_security
+  changed_when: false
+
+- name: セキュリティ設定を表示する
+  ansible.builtin.debug:
+    var: r_security.output

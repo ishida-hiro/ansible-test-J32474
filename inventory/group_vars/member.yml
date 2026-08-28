@@ -1,0 +1,24 @@
+---
+# ============================================================================
+# メンバーサーバ（S-AZR-003 〜 006）
+#   設計書 1.9 : 追加する役割と機能は「アプリベンダー様にて対応いただく想定」
+#   → 本 Ansible では OS 初期設定＋ドメイン参加までを実施（設計書 1.2 注記）
+# ============================================================================
+server_role: "メンバーサーバ"
+
+windows_features: []              # ベンダー対応範囲のため既定は空
+
+# ---- 1.3 ユーザアカウント : ドメインユーザ＋ローカルユーザあり --------------
+local_users:
+  - name: "picklesadmin"
+    password: "{{ vault_picklesadmin_password }}"
+    groups: ["Administrators"]
+    description: "ローカル管理者"
+    password_never_expires: true
+
+data_disks:
+  - disk_number: 2
+    drive_letter: "D"
+    label: "ボリューム"
+    partition_style: mbr
+    file_system: ntfs

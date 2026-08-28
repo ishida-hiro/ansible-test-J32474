@@ -1,0 +1,21 @@
+---
+# 設計書 1.2「ドメイン参加」
+# false の場合、本ロールは現状確認のみ行い、参加/昇格は実施しない
+enable_domain_join: false
+
+ad_domain_name: "PICKLES-CORP.pickles.co.jp"
+ad_netbios_name: "PICKLES-CORP"
+ad_domain_ou_path: ""
+
+# DC 昇格モード（dc グループのみ）
+#   new_forest    : 新規フォレストを作成する
+#   additional_dc : 既存ドメインへ追加ドメインコントローラとして昇格する
+ad_mode: additional_dc
+
+# DC 昇格時のデータベース／ログ／SYSVOL 配置
+ad_database_path: 'C:\Windows\NTDS'
+ad_log_path:      'C:\Windows\NTDS'
+ad_sysvol_path:   'C:\Windows\SYSVOL'
+
+# ドメイン参加前に設定する DNS サーバ（空なら Azure(DHCP) 配布値のまま）
+domain_dns_servers: []

@@ -1,0 +1,45 @@
+---
+# ============================================================================
+# 02_domain.yml : ドメイン参加 / ドメインコントローラ昇格 と 時刻同期
+#   設計書 1.2 ドメイン参加 / 1.8 時刻同期設定
+#   ※ファイルサーバはメンバー参加のみ（DC 昇格なし）
+#
+#   実行順:
+#     1) dc グループ（S-AZR-001 → S-AZR-002）を 1 台ずつ昇格
+#     2) メンバーサーバ（S-AZR-003〜007）をドメインに参加
+#
+#   ※今回の Ansible 初期構築ではドメイン参加 / DC 昇格は対象外のため、
+#     enable_domain_join = false の間は現状確認と時刻同期のみ実施する。
+#     実施する場合は inventory/group_vars/all/main.yml で true に変更する。
+# ============================================================================
+
+- name: ドメインコントローラを構成する
+  hosts: dc
+  gather_facts: true
+  serial: 1                       # レプリケーション整合のため 1 台ずつ実行する
+
+  roles:
+    - role: win_domain
+      tags: [domain]
+    - role: win_ntp               # 1.8 : PDC は ntp.nict.jp と手動同期
+      tags: [ntp]
+
+- name: メンバーサーバをドメインに参加させる
+  hosts: windows:!dc
+  gather_facts: true
+
+  roles:
+    - role: win_domain
+      tags: [domain]
+    - role: win_ntp               # ドメイン階層から自動同期（NT5DS）へ戻す
+      tags: [ntp]
+
+  post_tasks:
+    - name: ドメイン参加後の接続ユーザについて通知する
+      ansible.builtin.debug:
+        msg: >-
+          ドメイン参加後にドメイン管理者で接続する場合は、
+          inventory/group_vars/windows.yml の ansible_user / ansible_password を
+          vault_domain_admin_user / vault_domain_admin_password に切り替えてください。
+      run_once: true
+      when: enable_domain_join | bool

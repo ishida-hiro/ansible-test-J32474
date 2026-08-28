@@ -1,0 +1,6 @@
+---
+# 設計書 1.15「サービス設定」／ｻｰﾋﾞｽ一覧（ファイルサーバ=シート8 16. / ADサーバ=旧シート2 17.）
+#   name       : サービス名（サービスキー名）
+#   start_mode : auto / manual / disabled
+#   state      : started / stopped
+windows_services_config: []

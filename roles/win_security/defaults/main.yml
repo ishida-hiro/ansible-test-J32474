@@ -1,0 +1,16 @@
+---
+# ---- 1.10 Windows Defender ファイアウォール --------------------------------
+firewall_state: disabled          # NSG で制御するため OS 側は無効
+firewall_profiles: [Domain, Private, Public]
+firewall_customize_logging: true
+firewall_log_size_kb: 4096
+firewall_log_path: 'C:\Windows\system32\LogFiles\Firewall\pfirewall.log'
+firewall_log_dropped: false       # 破棄されたパケットをログに記録する = いいえ
+firewall_log_allowed: false       # 正常な接続をログに記録する           = いいえ
+firewall_notifications: false     # 通知を表示する                        = いいえ
+
+# ---- 1.11 Windows Defender --------------------------------------------------
+disable_defender_by_policy: true
+
+# ---- 1.12 ユーザアカウント制御 ---------------------------------------------
+disable_uac: true

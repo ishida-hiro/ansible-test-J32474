@@ -1,0 +1,47 @@
+---
+# ============================================================================
+# site.yml : Windows サーバ構築 一括実行
+#   設計書「sample_Windows詳細設計書」（シート「1.概要」「8.ファイルサーバ」）
+#   に基づく全工程を順に実行する。
+#
+#   実行例:
+#     ansible-playbook playbooks/site.yml --ask-vault-pass
+#     ansible-playbook playbooks/site.yml -i inventory/hosts.yml -l S-AZR-007 --ask-vault-pass
+#
+#   工程:
+#     1) 01_os_initial.yml : OS初期設定（設計書 1.4〜1.7, 1.10〜1.12, 1.14, 1.15）
+#     2) 02_domain.yml     : ドメイン参加 / DC昇格（設計書 1.2）＋ NTP（設計書 1.8）
+#     3) 03_role_setup.yml : 役割固有設定（設計書 1.13 タスク / 1.16 FTP）
+#     4) 99_verify.yml     : 設定値の検証と証跡取得
+# ============================================================================
+
+- name: 事前確認（接続 / 認証情報）
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Vault の認証情報が読み込めているか確認する
+      ansible.builtin.assert:
+        that:
+          - vault_local_admin_user is defined
+          - vault_local_admin_password is defined
+        fail_msg: >-
+          inventory/group_vars/all/vault.yml が未作成です。
+          vault.yml.example をコピーして値を設定し、ansible-vault encrypt してください。
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+
+    - name: WinRM で接続できるか確認する
+      ansible.windows.win_ping:
+
+- name: OS 初期設定
+  ansible.builtin.import_playbook: 01_os_initial.yml
+
+- name: ドメイン参加 / ドメインコントローラ昇格
+  ansible.builtin.import_playbook: 02_domain.yml
+
+- name: 役割固有設定
+  ansible.builtin.import_playbook: 03_role_setup.yml
+
+- name: 設定値の検証と証跡取得
+  ansible.builtin.import_playbook: 99_verify.yml

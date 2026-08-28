@@ -1,0 +1,177 @@
+---
+# ============================================================================
+# ファイルサーバ（設計書「1.概要」No.7 / シート「8.ファイルサーバ」）
+#
+#   OS          : Windows Server 2025 Datacenter        （概要 1.1 / シート8 2.OS情報）
+#   ドメイン     : PICKLES-CORP.pickles.co.jp にメンバー参加（概要 1.2 / シート8 3.）
+#   役割        : IIS(Web/FTP) + ファイルサーバ + FSRM   （概要 1.9 / シート8 12.）
+#   タスク      : 8 件                                    （概要 1.13）
+#   FTP サイト  : 2 件                                    （概要 1.16）
+#
+#   ※本設計書はサンプル版のため、ホスト名・コンピュータ名・ローカルユーザ名・
+#     FTP サイト名がマスクされています。マスク箇所は概要シートの記載から補完し、
+#     docs/03_要確認事項.md A-1 / A-6 に整理しています。
+# ============================================================================
+server_role: "ファイルサーバ"
+
+# ---- 1.9 役割と機能 / シート8 12.役割と機能の追加 ---------------------------
+# シート8 で ■ かつ「（ﾃﾞﾌｫﾙﾄ）」注記が無い＝明示的に追加が必要な項目のみを列挙する。
+# 「（ﾃﾞﾌｫﾙﾄ）」注記のある項目は windows_features_expected_default を参照。
+windows_features:
+  # -- Web サーバー (IIS) ----------------------------------------------------
+  - Web-Server                    # Web サーバー (IIS)
+  - Web-WebServer                 # Web サーバー
+  - Web-Common-Http               # HTTP 共通機能
+  - Web-Http-Errors               #   HTTP エラー
+  - Web-Dir-Browsing              #   ディレクトリの参照
+  - Web-Default-Doc               #   既定のドキュメント
+  - Web-Static-Content            #   静的なコンテンツ
+  - Web-Security                  # セキュリティ
+  - Web-Filtering                 #   要求フィルター
+  - Web-Performance               # パフォーマンス
+  - Web-Stat-Compression          #   静的なコンテンツの圧縮
+  - Web-Health                    # 状態と診断
+  - Web-Http-Logging              #   HTTP ログ
+  # -- FTP サーバー ----------------------------------------------------------
+  - Web-Ftp-Server                # FTP サーバー
+  - Web-Ftp-Service               #   FTP サービス
+  - Web-Ftp-Ext                   #   FTP 拡張
+  # -- IIS 管理ツール --------------------------------------------------------
+  - Web-Mgmt-Tools                # 管理ツール
+  - Web-Mgmt-Console              #   IIS 管理コンソール
+  - Web-Mgmt-Compat               #   IIS 6 管理互換
+  - Web-Metabase                  #     IIS 6 メタベース互換
+  - Web-Scripting-Tools           #   IIS 管理スクリプトおよびツール
+  - Web-Mgmt-Service              #   管理サービス
+  # -- ファイル サービスと記憶域サービス -------------------------------------
+  - File-Services                 # ファイル サービスおよび iSCSI サービス
+  - FS-FileServer                 #   ファイル サーバー（FSRM に必要）
+  - FS-Resource-Manager           #   ファイル サーバー リソース マネージャー
+  # -- .NET Framework 4.8 ----------------------------------------------------
+  - NET-Framework-45-ASPNET       # ASP.NET 4.8
+  # -- リモート サーバー管理ツール -------------------------------------------
+  - RSAT                          # リモート サーバー管理ツール
+  - RSAT-Role-Tools               #   役割管理ツール
+  - RSAT-File-Services            #     ファイル サービス ツール
+  - RSAT-FSRM-Mgmt                #       ファイル サーバー リソース マネージャー ツール
+
+# シート8 12. で ■ かつ「（ﾃﾞﾌｫﾙﾄ）」注記がある＝OS 既定で導入済みの項目。
+# 追加はせず、99_verify.yml で導入状態のみ確認する（docs/03_要確認事項.md C-8）。
+windows_features_expected_default:
+  - FileAndStorage-Services       # ファイル サービスと記憶域サービス
+  - Storage-Services              # 記憶域サービス
+  - NET-Framework-45-Features     # .NET Framework 4.8 Features
+  - NET-Framework-45-Core         #   .NET Framework 4.8
+  - NET-WCF-Services45            #   WCF サービス
+  - NET-WCF-TCP-PortSharing45     #     TCP ポート共有
+  - BitLocker                     # BitLocker ドライブ暗号化
+  - Windows-Defender              # Microsoft Defender ウイルス対策
+  - PowerShell                    # Windows PowerShell
+  - PowerShell-V5                 #   Windows PowerShell 5.1
+  - Wireless-Networking           # Wireless LAN Service
+  - WoW64-Support                 # WoW64 サポート
+  - XPS-Viewer                    # XPS Viewer
+  - System-DataArchiver           # システム データ アーカイバー
+  - EnhancedStorage               # 拡張記憶域
+
+# ---- 1.3 ユーザアカウント / シート8 6.ﾛｰｶﾙﾕｰｻﾞｰ -----------------------------
+# 概要 1.3 No.7 : ドメインユーザ PICKLES-CORP\Administrator ＋
+#                 ローカル Administrator ＋ kansai(Remote Desktop Users, Users)
+# 概要 1.16     : FTP 認証ユーザ docways / NPJS
+# ※シート8 6.ﾛｰｶﾙﾕｰｻﾞｰ の該当行はサンプル版でマスクされている
+#   （docs/03_要確認事項.md A-6）
+local_users:
+  - name: "kansai"
+    password: "{{ vault_kansai_password }}"
+    groups: ["Remote Desktop Users", "Users"]
+    description: "業務ユーザ（概要 1.3 No.7）"
+    password_never_expires: true
+  - name: "docways"
+    password: "{{ vault_ftp_docways_password }}"
+    groups: ["Users"]
+    description: "FTP(No.1 サイト) 認証ユーザ"
+    password_never_expires: true
+  - name: "NPJS"
+    password: "{{ vault_ftp_npjs_password }}"
+    groups: ["Users"]
+    description: "FTP(No.2 サイト) 認証ユーザ"
+    password_never_expires: true
+
+# ---- 1.4 ドライブ構成 / シート8 8.ﾃﾞｨｽｸの管理 -------------------------------
+#   C: Windows        126.51GB  MBR / NTFS  システム領域
+#   System Reserved      500MB  MBR / NTFS
+#   D: ボリューム       2048GB  MBR / NTFS  データ領域
+data_disks:
+  - disk_number: 2
+    drive_letter: "D"
+    label: "ボリューム"
+    partition_style: mbr
+    file_system: ntfs
+
+# ---- シート8 4.Windowsﾛｸﾞ ---------------------------------------------------
+# 3 ログとも最大 20480KB（ADサーバのシートでは Security のみ 131072KB だった）
+eventlog_config:
+  - { name: Application, maximum_size: "20480KB" }
+  - { name: Security,    maximum_size: "20480KB" }
+  - { name: System,      maximum_size: "20480KB" }
+
+# ---- 1.8 時刻同期設定 -------------------------------------------------------
+# ドメイン参加サーバのためドメインコントローラから自動同期（NT5DS）。
+# シート8 には AD シートにあった「13.NTP設定」に相当する節が無い。
+is_pdc_emulator: false
+
+# ---- 1.16 FTP設定 -----------------------------------------------------------
+# ※サイト名（F 列）はサンプル版でマスクされているため仮称を設定している
+ftp_log_directory: 'C:\inetpub\logs\LogFiles'
+ftp_log_rollover: "Daily"            # ログファイルロールオーバー = 毎日
+ftp_sites:
+  - name: "FTP-POD"                 # 仮称（設計書のサイト名はマスク）
+    physical_path: 'D:\POD'
+    ip_address: "*"
+    port: 21
+    host_name: ""                    # 仮想ホスト名なし
+    ssl: false
+    authentication: "Basic"          # 基本認証
+    users: ["docways"]
+    permissions: "Read,Write"        # 読み取り、書き込み
+  - name: "FTP-NPJS"                # 仮称（設計書のサイト名はマスク）
+    physical_path: 'D:\NPJS'
+    ip_address: "*"
+    port: 21
+    host_name: "NPJS.com"            # FTP 仮想ホスト名
+    ssl: false
+    authentication: "Basic"
+    users: ["NPJS"]
+    permissions: "Read,Write"
+
+# ---- 1.13 タスクスケジューラ ------------------------------------------------
+scheduled_tasks:
+  # 概要 1.13 No.1。起動日時「2025/02/07 18:25」が過去日時のため今回は登録対象外。
+  # 正しい起動日時が確定したら skip / skip_reason を削除して有効化する。
+  - name: "SHM商品マスター更新"
+    program: 'D:\期間連携\bat\kikan_conver.bat'
+    trigger: { type: once, start_boundary: "2025-02-07T18:25:00" }
+    note: "指定日時 2025/02/07 18:25 に起動（設計書記載どおり）"
+    skip: true
+    skip_reason: "起動日時が過去日時（2025/02/07）のため今回は対象外（docs/03_要確認事項.md A-5）"
+  - name: "ユーザーマスタアップロード"
+    program: 'D:\期間連携\ユーザーマスタ\bat\user_master_conver.bat'
+    trigger: { type: daily, start_boundary: "2025-01-01T22:05:00" }
+  - name: "ユーザー情報ダウンロード"
+    program: 'D:\期間連携\ユーザーマスタ\bat\user_info_export.bat'
+    trigger: { type: daily, start_boundary: "2025-01-01T22:00:00" }
+  - name: "商品マスターアップロード"
+    program: 'D:\基幹連携(八幡屋)\bat\kikan_convert.bat'
+    trigger: { type: daily, start_boundary: "2025-01-01T22:25:00" }
+  - name: "原材料マスターアップロード"
+    program: 'D:\基幹連携\原材料\bat\genzairyou_convert.bat'
+    trigger: { type: daily, start_boundary: "2025-01-01T22:10:00" }
+  - name: "製品試算マスターアップロード"
+    program: 'D:\基幹連携\製品試算\bat\shisan_convert.bat'
+    trigger: { type: daily, start_boundary: "2025-01-01T22:05:00" }
+  - name: "デイリー"
+    program: 'C:\SateraitoEDI.v4.4\bat\daily_export.bat'
+    trigger: { type: daily, start_boundary: "2025-01-01T05:55:00" }
+  - name: "デリカ"
+    program: 'C:\SateraitoEDI.v4.4\bat\delica_export.bat'
+    trigger: { type: daily, start_boundary: "2025-01-01T05:50:00" }

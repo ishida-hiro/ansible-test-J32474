@@ -1,0 +1,73 @@
+---
+# ============================================================================
+# win_ntp : 時刻同期設定
+#   設計書 1.8 / 旧シート2 13.NTP設定（シート8 に該当節なし）
+#     PDC       : w32tm /config /syncfromflags:manual
+#                        /manualpeerlist:ntp.nict.jp,0x8 /reliable:yes /update
+#     それ以外  : w32tm /config /update （ドメイン階層から自動同期 = NT5DS）
+# ============================================================================
+
+- name: 実際に PDC エミュレータを保持しているか確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $isPdc = $false
+      try {
+          $dom = Get-CimInstance Win32_ComputerSystem
+          if ($dom.PartOfDomain) {
+              Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+              $role = (Get-ADDomain -ErrorAction SilentlyContinue).PDCEmulator
+              if ($role -and $role.Split('.')[0] -eq $env:COMPUTERNAME) { $isPdc = $true }
+          }
+      } catch { }
+      [pscustomobject]@{ IsPdcEmulator = $isPdc }
+  register: r_pdc
+  changed_when: false
+  failed_when: false
+
+- name: PDC 判定結果を表示する
+  ansible.builtin.debug:
+    msg: >-
+      インベントリ定義 is_pdc_emulator={{ is_pdc_emulator }} /
+      実機判定 {{ r_pdc.output[0].IsPdcEmulator | default('取得不可') }}
+
+- name: Windows Time サービスを自動起動にする
+  ansible.windows.win_service:
+    name: W32Time
+    start_mode: auto
+    state: started
+
+- name: PDC で外部 NTP サーバと手動同期する設定を行う（設計書 1.8 / 旧シート2 13.NTP設定）
+  ansible.windows.win_shell: >-
+    w32tm.exe /config /syncfromflags:manual
+    /manualpeerlist:"{{ ntp_servers }}" /reliable:yes /update
+  when: is_pdc_emulator | bool
+  register: r_w32tm_pdc
+  changed_when: "'正常に完了' in r_w32tm_pdc.stdout or 'successfully' in r_w32tm_pdc.stdout"
+
+- name: PDC 以外は時刻同期設定を既定（ドメイン階層）へ戻す
+  ansible.windows.win_shell: w32tm.exe /config /update
+  when: not is_pdc_emulator | bool
+  register: r_w32tm_member
+  changed_when: "'正常に完了' in r_w32tm_member.stdout or 'successfully' in r_w32tm_member.stdout"
+
+- name: Windows Time サービスを再起動して設定を反映する
+  ansible.windows.win_service:
+    name: W32Time
+    state: restarted
+
+- name: 時刻を再同期する
+  ansible.windows.win_shell: w32tm.exe /resync /rediscover
+  register: r_resync
+  changed_when: false
+  failed_when: false
+
+- name: 時刻同期の構成を確認する
+  ansible.windows.win_shell: w32tm.exe /query /configuration & w32tm.exe /query /status
+  register: r_w32tm_status
+  changed_when: false
+  failed_when: false
+
+- name: 時刻同期の構成を表示する
+  ansible.builtin.debug:
+    var: r_w32tm_status.stdout_lines

@@ -1,0 +1,157 @@
+---
+# ============================================================================
+# win_domain : ドメイン参加 / ドメインコントローラ昇格
+#   設計書 1.2「PICKLES-CORP.pickles.co.jp に参加する」
+#   設計書 1.9  No.1,2 = AD / DNS
+#   ※No.3〜6 は OS初期設定およびドメイン参加後にお引渡し（設計書 1.2）
+# ============================================================================
+
+- name: ドメイン参加が対象外である旨を通知する
+  ansible.builtin.debug:
+    msg: >-
+      今回の初期構築ではドメイン参加 / ドメインコントローラ昇格は対象外です
+      （enable_domain_join = false）。現状確認のみ行います。
+  when: not enable_domain_join | bool
+
+- name: ドメイン参加前に DNS サーバを設定する（既定は Azure 配布値のまま）
+  ansible.windows.win_dns_client:
+    adapter_names: "*"
+    dns_servers: "{{ domain_dns_servers }}"
+  when:
+    - enable_domain_join | bool
+    - domain_dns_servers | length > 0
+
+- name: 現在のドメイン参加状態を取得する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $cs = Get-CimInstance Win32_ComputerSystem
+      [pscustomobject]@{
+        PartOfDomain = $cs.PartOfDomain
+        Domain       = $cs.Domain
+        DomainRole   = $cs.DomainRole   # 4,5 = ドメインコントローラ
+      }
+  register: r_domain_state
+  changed_when: false
+
+- name: 現在の状態を表示する
+  ansible.builtin.debug:
+    var: r_domain_state.output
+
+# ---- ドメインコントローラ（設計書 No.1 / No.2） -----------------------------
+- name: 新規フォレストを作成する（ad_mode = new_forest）
+  microsoft.ad.domain:
+    dns_domain_name: "{{ ad_domain_name }}"
+    domain_netbios_name: "{{ ad_netbios_name }}"
+    safe_mode_password: "{{ vault_safe_mode_password }}"
+    database_path: "{{ ad_database_path }}"
+    log_path: "{{ ad_log_path }}"
+    sysvol_path: "{{ ad_sysvol_path }}"
+    install_dns: true
+    reboot: true
+  when:
+    - enable_domain_join | bool
+    - "'dc' in group_names"
+    - ad_mode == 'new_forest'
+    - (r_domain_state.output[0].DomainRole | int) not in [4, 5]
+
+- name: 既存ドメインへ追加ドメインコントローラとして昇格する（ad_mode = additional_dc）
+  microsoft.ad.domain_controller:
+    dns_domain_name: "{{ ad_domain_name }}"
+    domain_admin_user: "{{ vault_domain_admin_user }}"
+    domain_admin_password: "{{ vault_domain_admin_password }}"
+    safe_mode_password: "{{ vault_safe_mode_password }}"
+    database_path: "{{ ad_database_path }}"
+    domain_log_path: "{{ ad_log_path }}"
+    sysvol_path: "{{ ad_sysvol_path }}"
+    install_dns: true
+    state: domain_controller
+    reboot: true
+  when:
+    - enable_domain_join | bool
+    - "'dc' in group_names"
+    - ad_mode == 'additional_dc'
+    - (r_domain_state.output[0].DomainRole | int) not in [4, 5]
+
+- name: AD DS / Netlogon サービスの起動を待機する
+  ansible.windows.win_service_info:
+    name: "{{ item }}"
+  loop:
+    - NTDS
+    - Netlogon
+  register: r_ad_service
+  until:
+    - r_ad_service.services | length > 0
+    - r_ad_service.services[0].state == 'started'
+  retries: 30
+  delay: 10
+  when:
+    - enable_domain_join | bool
+    - "'dc' in group_names"
+
+- name: ドメインコントローラの状態を確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+      $dc = Get-ADDomainController -Server localhost -ErrorAction SilentlyContinue
+      [pscustomobject]@{
+        HostName       = $dc.HostName
+        Domain         = $dc.Domain
+        Forest         = $dc.Forest
+        Site           = $dc.Site
+        OperationMaster = ($dc.OperationMasterRoles -join ',')
+        IsGlobalCatalog = $dc.IsGlobalCatalog
+      }
+  register: r_dc_info
+  changed_when: false
+  failed_when: false
+  when:
+    - enable_domain_join | bool
+    - "'dc' in group_names"
+
+- name: ドメインコントローラ情報を表示する
+  ansible.builtin.debug:
+    var: r_dc_info.output
+  when:
+    - enable_domain_join | bool
+    - "'dc' in group_names"
+
+# ---- メンバーサーバ（設計書 No.3〜7） ---------------------------------------
+- name: ドメインに参加する（設計書 1.2）
+  microsoft.ad.membership:
+    dns_domain_name: "{{ ad_domain_name }}"
+    hostname: "{{ computer_name | default(inventory_hostname) }}"
+    domain_ou_path: "{{ ad_domain_ou_path | default(omit, true) }}"
+    domain_admin_user: "{{ vault_domain_admin_user }}"
+    domain_admin_password: "{{ vault_domain_admin_password }}"
+    state: domain
+    reboot: true
+  when:
+    - enable_domain_join | bool
+    - "'dc' not in group_names"
+    - not (r_domain_state.output[0].PartOfDomain | bool)
+
+- name: ドメイン参加結果を確認する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $cs = Get-CimInstance Win32_ComputerSystem
+      [pscustomobject]@{
+        Name         = $cs.Name
+        PartOfDomain = $cs.PartOfDomain
+        Domain       = $cs.Domain
+      }
+  register: r_domain_after
+  changed_when: false
+
+- name: ドメイン参加結果を表示する
+  ansible.builtin.debug:
+    var: r_domain_after.output
+
+- name: お引渡し対象サーバであることを通知する（設計書 1.2）
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} ({{ server_purpose | default('-') }}) は
+      OS初期設定およびドメイン参加後にアプリベンダー様へお引渡しする対象です。
+  when: handover_after_os_and_domain | default(false) | bool
