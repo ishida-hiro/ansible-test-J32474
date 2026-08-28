@@ -122,14 +122,15 @@ output "windows_admin_password_generated" {
       Windows サーバの受信は NSG で運用端末 / Ansible 実行サーバの IP に
       限定されているため、検証用途では許容している。
       マスクしたい場合は変数 windows_admin_password を明示指定すること
-      （指定した場合、本出力は null になり、sensitive な
-        windows_admin_password 側だけが値を持つ）。
+      （指定した場合 random_password は作られないため、本出力は null になり、
+        sensitive な windows_admin_password 側だけが値を持つ）。
+
+    ※ 条件式に var.windows_admin_password（sensitive）を使うと、
+      条件自体が sensitive 扱いとなり出力全体へ伝播して
+      「output containing sensitive data ... must be marked as sensitive」
+      エラーになる。そのため random_password の有無だけで判定している。
   EOT
-  value = (
-    local.create_windows && var.windows_admin_password == ""
-    ? nonsensitive(try(random_password.windows_admin[0].result, ""))
-    : null
-  )
+  value       = try(nonsensitive(random_password.windows_admin[0].result), null)
 }
 
 output "windows_rdp_command" {
