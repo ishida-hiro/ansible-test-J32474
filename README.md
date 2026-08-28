@@ -57,9 +57,11 @@ ansible-windows-build/
 │   ├── ansible-node/           # Ansible 実行用サーバを払い出す Terraform（検証用・専用RG）
 │   └── scripts/                # WinRM 有効化スクリプト
 ├── docs/
-│   ├── 01_構築手順.md / .docx          # 検討用に Word 版も同梱
-│   ├── 02_ロール一覧.md / .xlsx        # 検討用に Excel 版も同梱
-│   └── 03_要確認事項.md / .xlsx        # ★ 実行前に必ずご確認ください
+│   ├── 01_構築手順.md / .docx          # Windows サーバ構築手順
+│   ├── 02_ロール一覧.md / .xlsx        # ロールと設計書の対応表
+│   ├── 03_要確認事項.md / .xlsx        # ★ 実行前に必ずご確認ください
+│   ├── 04_Ansible実行サーバ構築手順.md / .docx  # ★ Terraform / HCP でのサーバ払い出し
+│   └── tools/                          # Office 版の生成スクリプト
 ├── evidence/                   # 証跡出力先（git 管理外）
 └── logs/                       # 実行ログ（git 管理外）
 ```
@@ -87,6 +89,10 @@ ansible-playbook playbooks/site.yml
 ```
 
 詳細は [docs/01_構築手順.md](docs/01_構築手順.md) を参照してください。
+
+Ansible を実行するサーバ自体を Azure 上に払い出す手順は
+[docs/04_Ansible実行サーバ構築手順.md](docs/04_Ansible実行サーバ構築手順.md) を参照してください
+（Terraform / HCP Terraform・GitHub 連携）。
 
 ## 実行前の注意
 
