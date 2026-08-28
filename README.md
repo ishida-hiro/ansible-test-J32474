@@ -55,6 +55,7 @@ ansible-windows-build/
 │   └── win_update.yml          # 更新プログラム適用のみ（運用時用）
 ├── terraform/
 │   ├── ansible-node/           # Ansible 実行用サーバを払い出す Terraform（検証用・専用RG）
+│   ├── windows-nsg/            # Windows サーバ用 NSG（RDP/WinRM を必要な IP のみ許可）
 │   └── scripts/                # WinRM 有効化スクリプト
 ├── docs/
 │   ├── 01_構築手順.md / .docx          # Windows サーバ構築手順
@@ -93,6 +94,10 @@ ansible-playbook playbooks/site.yml
 Ansible を実行するサーバ自体を Azure 上に払い出す手順は
 [docs/04_Ansible実行サーバ構築手順.md](docs/04_Ansible実行サーバ構築手順.md) を参照してください
 （Terraform / HCP Terraform・GitHub 連携）。
+
+構築時は Ansible 実行サーバ・Windows サーバの双方に Public IP を付与し、
+NSG で必要な送信元 IP × ポートのみを許可する構成です（VNet ピアリングは使用しません）。
+詳細は [terraform/README.md](terraform/README.md) を参照してください。
 
 ## 実行前の注意
 

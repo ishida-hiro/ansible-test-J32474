@@ -108,6 +108,29 @@ variable "allowed_ssh_source_addresses" {
   }
 }
 
+variable "windows_server_public_ips" {
+  description = <<-EOT
+    構築対象 Windows サーバの Public IP（CIDR 表記のリスト）。
+    ここに指定した宛先への WinRM(5986/TCP) 送信を NSG で明示的に許可する。
+    例: ["203.0.113.20/32", "203.0.113.21/32"]
+
+    ※Azure の既定で送信はインターネット向けに許可されているため、
+      本設定が空でも通信自体は可能。意図を NSG 上に明示し、
+      監査時に「どこへ繋ぐ構成か」を追えるようにするための設定。
+    ※Windows 側の受信許可は terraform/windows-nsg で構成する。
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = length([
+      for c in var.windows_server_public_ips : c
+      if c == "0.0.0.0/0" || lower(c) == "internet" || lower(c) == "*"
+    ]) == 0
+    error_message = "0.0.0.0/0 / Internet / * は指定できません。Windows サーバの Public IP を /32 で指定してください。"
+  }
+}
+
 variable "create_public_ip" {
   description = "パブリック IP を作成して SSH できるようにするか。false の場合は Bastion / VPN 経由の接続を前提とする"
   type        = bool

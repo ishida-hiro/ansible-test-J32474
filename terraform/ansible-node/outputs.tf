@@ -45,6 +45,14 @@ output "upload_playbook_command" {
   ) : "（パブリック IP 無効のため Bastion / VPN 経由で転送してください）"
 }
 
+output "ansible_node_source_cidr" {
+  description = <<-EOT
+    Windows サーバ側 NSG で WinRM(5986) の送信元として許可すべき CIDR。
+    terraform/windows-nsg の変数 ansible_node_public_ip にこの値を設定する。
+  EOT
+  value = var.create_public_ip ? "${azurerm_public_ip.this[0].ip_address}/32" : "${azurerm_network_interface.this.private_ip_address}/32"
+}
+
 output "setup_status_command" {
   description = "初期セットアップ（cloud-init）の完了確認コマンド"
   value       = "cloud-init status --wait && cat /var/log/ansible-node-setup.done"

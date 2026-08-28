@@ -5,10 +5,10 @@ Azure 上に払い出す手順です。
 
 | 項目 | 内容 |
 | --- | --- |
-| 構成 | `terraform/ansible-node` |
+| 構成 | `terraform/ansible-node`（Ansible 実行サーバ） / `terraform/windows-nsg`（Windows 側 NSG） |
 | 実行方式 | HCP Terraform（VCS 駆動 / GitHub 連携） |
 | Git リポジトリ | `https://github.com/ishida-hiro/ansible-test-J32474.git` |
-| VNet ピアリング | **作成しない** |
+| 接続方式 | **双方に Public IP を付与し、必要な送信元 IP × ポートのみ NSG で許可**（VNet ピアリングは使用しない） |
 | 作成先 | 専用リソースグループ `rg-pickles-verify-ansible`（destroy でまとめて削除可） |
 
 > ローカルの `terraform` コマンドで実行する場合は [付録 A](#付録-a-ローカルで実行する場合) を参照してください。
@@ -26,16 +26,54 @@ Azure 上に払い出す手順です。
      |                             |                        |                   |
  4. git push ------------------->  |                        |                   |
      |                             |--- VCS 連携 ---------> |                   |
- 5.  |                             |                   ワークスペース作成        |
+ 5.  |                             |         ワークスペース作成（ansible-node）  |
  6.  |                             |                   変数を設定               |
  7.  |                             |--- push で自動 plan -> |                   |
- 8.  |                             |                   Confirm & Apply ------>  VM 作成
+ 8.  |                             |                   Confirm & Apply ------>  Ansible 実行サーバ作成
      |                             |                        |                   |
  9. SSH 接続 <--------------------------------------------------------------- |
-10. Playbook を配置して実行         |                        |                   |
+     |                             |                        |                   |
+10. Windows サーバを作成（別構成 / 手動。Public IP 付き）------------------->  |
+11.  |                             |         ワークスペース作成（windows-nsg）   |
+12.  |                             |                   Confirm & Apply ------>  Windows 用 NSG 作成
+13. Windows へ RDP → WinRM 有効化 ------------------------------------------> |
+14. Ansible から win_ping で疎通確認                                           |
+15. Playbook を配置して実行         |                        |                   |
 ```
 
 所要時間の目安: 事前準備 15 分 / apply 5 分 / cloud-init 完了まで 5〜10 分
+
+### 接続方式（構築時）
+
+構築時は **Ansible 実行サーバ・Windows サーバの双方に Public IP を付与**し、
+NSG で「必要な送信元 IP × 必要なポート」だけを許可します。
+
+```
+                  3389/TCP (RDP)
+   [運用端末] ──────────────────────────────┐
+       │                                     │
+       │ 22/TCP (SSH)                        v
+       v                          +------------------------+
++---------------------+  5986/TCP |  Windows サーバ         |
+| Ansible 実行サーバ   | ────────> |  （Public IP 付き）      |
+| （Public IP 付き）   |           |  windows-nsg            |
+|  ansible-node       |           +------------------------+
++---------------------+
+```
+
+| 経路 | ポート | 許可元 | 設定箇所 |
+| --- | --- | --- | --- |
+| 運用端末 → Ansible 実行サーバ | 22/TCP | 運用端末のグローバル IP | `ansible-node` の `allowed_ssh_source_addresses` |
+| 運用端末 → Windows サーバ | 3389/TCP | 運用端末のグローバル IP | `windows-nsg` の `allowed_rdp_source_addresses` |
+| Ansible 実行サーバ → Windows サーバ | 5986/TCP | Ansible 実行サーバの Public IP | `windows-nsg` の `ansible_node_public_ip` |
+
+いずれも `0.0.0.0/0` は variable の validation で拒否されます。
+
+> ⚠ **構築時限定の措置です。**
+> WinRM をインターネット経由で使うため、Ansible 側は自己署名証明書を検証しない設定
+> （`ansible_winrm_server_cert_validation: ignore`）になっており、
+> 経路上の中間者攻撃を検知できません。送信元 IP を `/32` に絞ることが実質的な防御です。
+> 構築完了後は Public IP を外し、閉域（同一 VNet / VPN）へ移行することを推奨します。
 
 ---
 
@@ -141,7 +179,7 @@ git push -u origin main
 
 ---
 
-## 6. HCP Terraform のワークスペースを作成する
+## 6. HCP Terraform のワークスペースを作成する（Ansible 実行サーバ）
 
 ### 6.1 ワークスペース作成
 
@@ -252,7 +290,104 @@ cat /var/log/ansible-node-setup.done      # ansible --version の結果が入る
 
 ---
 
-## 9. Playbook を配置する
+## 9. Windows サーバ用 NSG を構成する
+
+Windows サーバ本体（VM / Public IP）は本リポジトリの管理外です。
+**別途 Public IP 付きで作成したうえで**、`terraform/windows-nsg` で受信許可を構成します。
+
+### 9.1 Ansible 実行サーバの Public IP を確認する
+
+WinRM の許可元になります。HCP のワークスペース **Outputs** の
+`ansible_node_source_cidr`（例: `203.0.113.11/32`）を控えます。
+
+ローカル実行の場合:
+
+```bash
+terraform -chdir=terraform/ansible-node output -raw ansible_node_source_cidr
+```
+
+> この値を明示せず、Azure 上の Public IP リソースから**自動参照**させることもできます
+> （`ansible_node_public_ip` を空にする）。Ansible 実行サーバを作り直した際に
+> 追従できるため、こちらを推奨します。
+
+### 9.2 ワークスペースを作成する
+
+`ansible-node` とは **別ワークスペース**にします（state を分けるため）。
+
+1. **New workspace → Version control workflow** → `ishida-hiro/ansible-test-J32474`
+2. **Workspace Name**: `ansible-test-J32474-windows-nsg`（任意）
+3. **Working Directory** に `terraform/windows-nsg` を設定
+4. **Environment variables** は `ansible-node` と同じ 4 件を設定
+   （`ARM_CLIENT_ID` / `ARM_CLIENT_SECRET` / `ARM_TENANT_ID` / `ARM_SUBSCRIPTION_ID`）
+
+### 9.3 Terraform variables を設定する
+
+| キー | 値の例 | HCL | 必須 |
+| --- | --- | --- | --- |
+| `resource_group_name` | `rg-pickles-windows`（Windows サーバの既存 RG） | | ✅ |
+| `allowed_rdp_source_addresses` | `["203.0.113.10/32"]` | ✅ **オン** | ✅ |
+| `ansible_node_public_ip` | `203.0.113.11/32`（空なら自動参照） | | |
+| `location` | `japaneast` | | |
+| `network_interface_ids` | `["/subscriptions/.../nic-S-AZR-007"]` | ✅ **オン** | |
+
+`network_interface_ids` を指定すると NSG が各 NIC に自動で関連付きます。
+空のままにすると **NSG を作成するだけ**なので、Azure Portal 等で手動関連付けが必要です。
+
+### 9.4 apply して許可内容を確認する
+
+**Start new run** → plan 確認 → **Confirm & Apply**。
+
+作成される受信規則:
+
+| 優先度 | 名前 | ポート | 送信元 | 用途 |
+| --- | --- | --- | --- | --- |
+| 100 | `Allow-RDP-Inbound` | 3389/TCP | 運用端末 | WinRM 有効化・初期設定 |
+| 110 | `Allow-WinRM-Inbound` | 5986/TCP | Ansible 実行サーバ | Playbook 実行 |
+| 200〜 | （追加分） | 任意 | 任意 | `additional_inbound_rules` |
+| 4000 | `Deny-All-Inbound` | すべて | すべて | 上記以外を拒否 |
+
+Outputs の `allowed_inbound` で許可内容を一覧できます。
+
+```bash
+az network nsg rule list \
+  --nsg-name nsg-pickles-verify-windows \
+  --resource-group rg-pickles-windows --output table
+```
+
+### 9.5 Windows サーバで WinRM を有効化する
+
+運用端末から RDP でログオンし、管理者権限の PowerShell で実行します。
+
+```powershell
+.\bootstrap_winrm.ps1        # terraform/scripts/bootstrap_winrm.ps1
+```
+
+Azure の Custom Script Extension / RunCommand から実行しても構いません。
+
+### 9.6 疎通を確認する
+
+Ansible 実行サーバから確認します。
+
+```bash
+# ポート疎通
+nc -vz <Windows の Public IP> 5986
+
+# WinRM
+cd ~/ansible-windows-build
+ansible windows -m ansible.windows.win_ping
+```
+
+### 9.7 構築完了後に RDP を閉じる
+
+RDP は WinRM 有効化と初期設定のために開けています。不要になったら閉じてください。
+
+```hcl
+enable_rdp_rule = false
+```
+
+---
+
+## 10. Playbook を配置する
 
 ### 方法 A: サーバ側で clone する
 
@@ -281,6 +416,24 @@ vi inventory/group_vars/all/vault.yml        # 実機のパスワードを設定
 ansible-vault encrypt inventory/group_vars/all/vault.yml
 ```
 
+### 接続先を Public IP に設定する
+
+構築時は Public IP 経由で WinRM 接続するため、インベントリの `ansible_host` に
+**Windows サーバの Public IP** を設定します（既定値は仮の private IP です）。
+
+```bash
+vi inventory/test.yml        # ansible_host を Windows の Public IP に
+```
+
+```yaml
+fileserver:
+  hosts:
+    Ansible-TEST-FS:
+      ansible_host: 203.0.113.20      # ← Windows サーバの Public IP
+```
+
+> 閉域構成へ移行した際は、private IP に戻してください。
+
 ### 動作確認
 
 ```bash
@@ -296,31 +449,25 @@ Windows サーバの構築手順は [01_構築手順.md](01_構築手順.md) を
 
 ---
 
-## 10. Windows サーバへの到達性について
-
-**本構成は VNet ピアリングを作成しません。**
-Ansible は WinRM over HTTPS(5986) で接続するため、別途到達性の確保が必要です。
-
-| 構成 | 設定方法 |
-| --- | --- |
-| Windows サーバと同じ VNet に置く（推奨） | `existing_subnet_id` に既存サブネットの ID を指定する（VNet は作成されない） |
-| VPN / ExpressRoute 経由 | 既存の接続を利用する。`create_public_ip = false` も可 |
-| 別 VNet に置いてピアリングする | 本構成の範囲外。別途ピアリングを構成する |
-
-いずれの場合も、Windows サーバ側の NSG で
-**Ansible 実行用サーバのプライベート IP からの 5986/TCP を許可**してください。
-
----
-
 ## 11. 作り直し・削除
+
+ワークスペースが 2 つあるため、**削除は windows-nsg → ansible-node の順**で行います
+（windows-nsg が ansible-node の Public IP を参照しているため）。
 
 | 操作 | 手順 |
 | --- | --- |
-| 全削除 | ワークスペース **Settings → Destruction and Deletion → Queue destroy plan** |
-| VM だけ作り直す | ローカル実行時: `terraform apply -replace=azurerm_linux_virtual_machine.this` |
+| 全削除 | 各ワークスペース **Settings → Destruction and Deletion → Queue destroy plan** |
 | 設定変更 | コードを修正して `git push` → plan 確認 → Apply |
+| VM だけ作り直す | ローカル実行時: `terraform apply -replace=azurerm_linux_virtual_machine.this` |
+| RDP を閉じる | windows-nsg の `enable_rdp_rule = false` にして apply |
 
-すべてのリソースが専用リソースグループに閉じているため、destroy でまとめて消えます。
+`ansible-node` は専用リソースグループに閉じているため、destroy でまとめて消えます。
+`windows-nsg` は **既存 RG 内に NSG だけを作る**構成のため、destroy しても
+Windows サーバ本体には影響しません（NSG の関連付けが外れます）。
+
+> Ansible 実行サーバを**リソースごと再作成**すると Public IP が変わることがあります。
+> その場合は windows-nsg も apply し直してください
+> （`ansible_node_public_ip` を空にして自動参照にしておくと追従が容易です）。
 
 ---
 
@@ -337,6 +484,11 @@ Ansible は WinRM over HTTPS(5986) で接続するため、別途到達性の確
 | SSH が `Permission denied (publickey)` | 登録した公開鍵と手元の秘密鍵が不一致 | `ssh -i ~/.ssh/id_ed25519 azureuser@<FQDN>` で鍵を明示する |
 | `ansible` コマンドが無い | cloud-init 未完了 | `cloud-init status --wait` で完了を待つ |
 | VM が停止している | 自動シャットダウン（毎日 21:00 JST） | Azure Portal で起動する。不要なら `enable_auto_shutdown = false` |
+| windows-nsg の apply で `Ansible 実行サーバの Public IP を解決できません` | ansible-node 未作成 / 名前不一致 | 先に ansible-node を apply する。または `ansible_node_public_ip` を明示指定する |
+| `nc -vz <Windows IP> 5986` がタイムアウト | Windows 側 NSG の許可元が不一致 | windows-nsg の `ansible_node_public_ip` が現在の Ansible 実行サーバ Public IP と一致しているか確認する |
+| `win_ping` が `the specified credentials were rejected` | 認証情報の誤り | `vault.yml` のユーザ / パスワードを確認する |
+| `win_ping` が `certificate verify failed` | 証明書検証が有効 | `inventory/group_vars/windows.yml` の `ansible_winrm_server_cert_validation: ignore` を確認する |
+| `win_ping` が `Connection refused` | WinRM 未有効化 | Windows へ RDP して `bootstrap_winrm.ps1` を実行する（手順 9.5） |
 
 ---
 
@@ -406,4 +558,6 @@ terraform apply
 | [01_構築手順.md](01_構築手順.md) | Windows サーバ（ファイルサーバ）の構築手順 |
 | [02_ロール一覧.md](02_ロール一覧.md) | Ansible ロールと設計書の対応表 |
 | [03_要確認事項.md](03_要確認事項.md) | 設計書の未確定・矛盾箇所 |
-| [../terraform/ansible-node/README.md](../terraform/ansible-node/README.md) | Terraform 構成のリファレンス（変数一覧など） |
+| [../terraform/README.md](../terraform/README.md) | 接続方式の全体像と実行順序 |
+| [../terraform/ansible-node/README.md](../terraform/ansible-node/README.md) | Ansible 実行サーバ構成のリファレンス（変数一覧など） |
+| [../terraform/windows-nsg/README.md](../terraform/windows-nsg/README.md) | Windows サーバ用 NSG のリファレンス |

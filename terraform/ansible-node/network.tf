@@ -63,6 +63,27 @@ resource "azurerm_network_security_rule" "deny_all_in" {
   destination_address_prefix = "*"
 }
 
+# ---- 送信 : Windows サーバ宛の WinRM のみ明示的に許可 -----------------------
+# 既定の AllowInternetOutbound より高い優先度で「意図した宛先」を明示する。
+# （cloud-init のパッケージ取得等があるため、その他の送信は既定のまま許可）
+resource "azurerm_network_security_rule" "winrm_out" {
+  count = length(var.windows_server_public_ips) > 0 ? 1 : 0
+
+  name                        = "Allow-WinRM-Outbound"
+  description                 = "構築対象 Windows サーバへの WinRM over HTTPS のみ明示的に許可する"
+  resource_group_name         = azurerm_resource_group.this.name
+  network_security_group_name = azurerm_network_security_group.this.name
+
+  priority                     = 100
+  direction                    = "Outbound"
+  access                       = "Allow"
+  protocol                     = "Tcp"
+  source_port_range            = "*"
+  destination_port_range       = "5986"
+  source_address_prefix        = "*"
+  destination_address_prefixes = var.windows_server_public_ips
+}
+
 # ---- パブリック IP / NIC ----------------------------------------------------
 resource "azurerm_public_ip" "this" {
   count = var.create_public_ip ? 1 : 0

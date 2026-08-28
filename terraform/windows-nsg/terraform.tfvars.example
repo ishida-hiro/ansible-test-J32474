@@ -1,0 +1,63 @@
+# ============================================================================
+# terraform.tfvars のテンプレート（terraform/windows-nsg）
+#   cp terraform.tfvars.example terraform.tfvars して値を設定する
+#   ※ terraform.tfvars は .gitignore 対象（リポジトリにコミットしないこと）
+#
+#   ★HCP Terraform で実行する場合、このファイルは使いません★
+#     変数は HCP ワークスペースの「Variables」に設定してください。
+# ============================================================================
+
+# ---- 必須 -------------------------------------------------------------------
+# Windows サーバが所属する既存リソースグループ
+resource_group_name = "rg-pickles-windows"
+
+# RDP(3389) を許可する送信元。運用端末のグローバル IP。
+# 確認方法: curl -s https://ifconfig.me
+allowed_rdp_source_addresses = ["203.0.113.10/32"]
+
+# ---- Ansible 実行サーバ（WinRM の送信元） -----------------------------------
+# terraform/ansible-node の出力 ansible_node_source_cidr の値を設定する。
+#   terraform -chdir=../ansible-node output -raw ansible_node_source_cidr
+# 未指定の場合は下の name / resource_group_name から Azure 上の Public IP を自動参照する。
+# ansible_node_public_ip = "203.0.113.11/32"
+
+ansible_node_public_ip_name      = "pip-pickles-verify-ansible"
+ansible_node_resource_group_name = "rg-pickles-verify-ansible"
+
+# ---- 全体 -------------------------------------------------------------------
+location = "japaneast"
+prefix   = "pickles"
+env      = "verify"
+
+# NSG 名（既定: nsg-<prefix>-<env>-windows）
+# nsg_name = "nsg-pickles-verify-windows"
+
+tags = {
+  CostTag = "verification"
+}
+
+# ---- RDP ルール -------------------------------------------------------------
+# 構築が終わったら false にして RDP を閉じる運用を想定
+enable_rdp_rule = true
+
+# ---- 追加の受信許可（任意） -------------------------------------------------
+# ファイルサーバの FTP を特定拠点にだけ開ける場合の例
+# additional_inbound_rules = [
+#   {
+#     name             = "Allow-FTP-Inbound"
+#     port             = "21"
+#     source_addresses = ["203.0.113.30/32"]
+#     description      = "FTP クライアント拠点からの接続（設計書 1.16）"
+#   },
+# ]
+
+# ---- 関連付け（任意） -------------------------------------------------------
+# 既存 Windows VM の NIC に関連付ける場合
+# network_interface_ids = [
+#   "/subscriptions/.../resourceGroups/rg-pickles-windows/providers/Microsoft.Network/networkInterfaces/nic-S-AZR-007",
+# ]
+
+# サブネット単位で関連付ける場合
+# subnet_ids = [
+#   "/subscriptions/.../resourceGroups/rg-pickles-windows/providers/Microsoft.Network/virtualNetworks/vnet-windows/subnets/snet-windows",
+# ]

@@ -22,8 +22,9 @@ Ansible のコントロールノード（Playbook を実行する Linux サー�
 | 仮想マシン | `vm-pickles-verify-ansible` | Ubuntu Server 24.04 LTS / Standard_B2s / SSH 鍵認証のみ |
 | 自動シャットダウン | — | 毎日 21:00 (JST)。`enable_auto_shutdown = false` で無効化 |
 
-> **VNet ピアリングは作成しません。** Windows サーバへの到達性は
-> [Windows サーバへの到達性](#windows-サーバへの到達性) を参照してください。
+> **VNet ピアリングは作成しません。** 構築時は Public IP 経由で Windows サーバへ接続します。
+> 詳細は [Windows サーバへの到達性](#windows-サーバへの到達性) を参照してください。
+> Windows サーバ側の NSG は [`terraform/windows-nsg`](../windows-nsg/README.md) で構成します。
 
 ### タグ
 
@@ -207,18 +208,44 @@ ansible-playbook playbooks/site.yml
 
 ## Windows サーバへの到達性
 
-Ansible は WinRM over HTTPS(5986) で Windows サーバへ接続します。
-**本モジュールは VNet ピアリングを作成しません**。到達性は以下のいずれかで確保してください。
+構築時は **Ansible 実行サーバ・Windows サーバの双方に Public IP を付与**し、
+NSG で「必要な送信元 IP × 必要なポート」だけを許可します。
+**本モジュールは VNet ピアリングを作成しません。**
+
+| 経路 | ポート | 許可元 | 設定箇所 |
+| --- | --- | --- | --- |
+| 運用端末 → Ansible 実行サーバ | 22/TCP | 運用端末のグローバル IP | 本モジュール `allowed_ssh_source_addresses` |
+| Ansible 実行サーバ → Windows サーバ | 5986/TCP | — （送信側の明示許可） | 本モジュール `windows_server_public_ips` |
+| 運用端末 → Windows サーバ | 3389/TCP | 運用端末のグローバル IP | `terraform/windows-nsg` |
+| Ansible 実行サーバ → Windows サーバ | 5986/TCP | Ansible 実行サーバの Public IP | `terraform/windows-nsg` |
+
+Windows サーバ側の受信許可は [`terraform/windows-nsg`](../windows-nsg/README.md) で構成します。
+本モジュールの出力 `ansible_node_source_cidr` をそちらの
+`ansible_node_public_ip` に渡してください（自動参照も可）。
+
+```bash
+terraform output -raw ansible_node_source_cidr    # 例: 203.0.113.11/32
+```
+
+### 送信（アウトバウンド）について
+
+`windows_server_public_ips` に Windows サーバの Public IP を指定すると、
+NSG に `Allow-WinRM-Outbound`（5986/TCP・優先度 100）が作成されます。
+
+Azure の既定で送信はインターネット向けに許可されているため、
+**この設定が無くても通信自体は可能**です。
+cloud-init のパッケージ取得や `ansible-galaxy` を妨げないよう、
+その他の送信は既定のまま許可しています。
+本設定は「どこへ繋ぐ構成か」を NSG 上に明示し、監査時に追えるようにするためのものです。
+
+### 閉域構成に切り替える場合
+
+構築完了後は Public IP を外し、閉域へ移行することを推奨します。
 
 | 構成 | 設定方法 |
 | --- | --- |
-| Windows サーバと同じ VNet に置く（推奨） | `existing_subnet_id` に既存サブネットの ID を指定する（VNet は作成されない） |
-| VPN / ExpressRoute 経由 | 既存の接続を利用する。`create_public_ip = false` も可 |
-| 別 VNet に置いてピアリングする | 本モジュールの範囲外。別途ピアリングを構成する |
-
-いずれの場合も、Windows サーバ側の NSG で
-**Ansible 実行用サーバのプライベート IP からの 5986/TCP を許可**してください。
-プライベート IP は出力値 `private_ip_address` で確認できます。
+| Windows サーバと同じ VNet に置く | `existing_subnet_id` に既存サブネットの ID を指定し、`create_public_ip = false` |
+| VPN / ExpressRoute 経由 | 既存の接続を利用する。`create_public_ip = false` |
 
 ---
 
@@ -249,6 +276,7 @@ HCP Terraform の場合は、ワークスペースの **Settings → Destruction
 | `vm_size` | `Standard_B2s` | VM サイズ |
 | `existing_subnet_id` | `""` | 指定すると既存サブネットへ配置（VNet を作成しない） |
 | `create_public_ip` | `true` | パブリック IP を作成する |
+| `windows_server_public_ips` | `[]` | WinRM(5986) 送信を明示許可する Windows サーバの Public IP |
 | `enable_auto_shutdown` | `true` | 毎日自動シャットダウン（コスト対策） |
 | `owner_tag` | `TF-J32474` | 全リソースの `Owner` タグ。`tags` より優先される |
 | `git_repository_url` | `""` | 指定すると起動時に Playbook を clone する（プライベートリポジトリでは失敗するため注意） |

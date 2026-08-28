@@ -43,6 +43,10 @@ subnet_address_prefixes = ["10.90.1.0/24"]
 
 create_public_ip = true
 
+# 構築対象 Windows サーバの Public IP。ここへの WinRM(5986) 送信を明示的に許可する。
+# ※Windows 側の受信許可は terraform/windows-nsg で構成すること。
+# windows_server_public_ips = ["203.0.113.20/32", "203.0.113.21/32"]
+
 # ---- 仮想マシン -------------------------------------------------------------
 vm_size        = "Standard_B2s"
 admin_username = "azureuser"
