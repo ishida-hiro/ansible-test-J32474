@@ -24,6 +24,14 @@
   loop_control:
     label: "{{ item.name }}"
 
+- name: タスク登録が対象外である旨を表示する
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} : タスクスケジューラへの登録は今回対象外です
+      （enable_scheduled_tasks = false）。登録対象 {{ scheduled_tasks_target | length }} 件は
+      定義のみ確認し、登録は行いません。
+  when: not enable_scheduled_tasks | bool
+
 - name: 実行プログラムの配置先ディレクトリを作成する
   ansible.windows.win_file:
     path: "{{ item.program | win_dirname }}"
@@ -31,7 +39,9 @@
   loop: "{{ scheduled_tasks_target }}"
   loop_control:
     label: "{{ item.program | win_dirname }}"
-  when: create_task_program_dirs | default(false) | bool
+  when:
+    - enable_scheduled_tasks | bool
+    - create_task_program_dirs | default(false) | bool
 
 - name: 実行プログラムの存在を確認する
   ansible.windows.win_stat:
@@ -40,16 +50,19 @@
   loop_control:
     label: "{{ item.program }}"
   register: r_task_program
+  when: enable_scheduled_tasks | bool
 
 - name: 未配置の実行プログラムを警告する（バッチはアプリ側で配置される想定）
   ansible.builtin.debug:
     msg: >-
       【要確認】実行プログラムが未配置です: {{ item.item.program }}
       （タスクは登録するが、実行時にエラーとなるため配置を確認すること）
-  loop: "{{ r_task_program.results }}"
+  loop: "{{ r_task_program.results | default([]) }}"
   loop_control:
     label: "{{ item.item.name }}"
-  when: not item.stat.exists
+  when:
+    - enable_scheduled_tasks | bool
+    - not item.stat.exists
 
 - name: スケジュールタスクを登録する
   community.windows.win_scheduled_task:
@@ -72,6 +85,7 @@
   loop: "{{ scheduled_tasks_target }}"
   loop_control:
     label: "{{ item.name }} ({{ item.trigger.type }} {{ item.trigger.start_boundary }})"
+  when: enable_scheduled_tasks | bool
   # 実行ユーザのパスワードをログへ出力しない。
   # 失敗時の切り分けでは -e task_no_log=false で一時的に無効化できる。
   no_log: "{{ task_no_log | bool }}"
@@ -88,9 +102,13 @@
               @{n='Trigger';e={ ($_.Triggers | ForEach-Object { "$($_.CimClass.CimClassName) $($_.StartBoundary)" }) -join ';' }}
   register: r_tasks
   changed_when: false
-  when: scheduled_tasks_target | length > 0
+  when:
+    - enable_scheduled_tasks | bool
+    - scheduled_tasks_target | length > 0
 
 - name: 登録済みタスクを表示する
   ansible.builtin.debug:
     var: r_tasks.output
-  when: scheduled_tasks_target | length > 0
+  when:
+    - enable_scheduled_tasks | bool
+    - scheduled_tasks_target | length > 0

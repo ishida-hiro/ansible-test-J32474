@@ -5,6 +5,10 @@
 #   arguments  : 引数（任意）
 #   trigger    : { type: once|daily|weekly|boot|logon, start_boundary: "YYYY-MM-DDTHH:MM:SS" }
 #   skip       : true を指定したタスクは登録対象から除外する（今回対象外のタスク）
+# タスク登録を実施するか。実行ユーザが解決できない環境では false にして
+# 登録をスキップする（enable_domain_join と同じ流儀）。
+enable_scheduled_tasks: true
+
 scheduled_tasks: []
 
 task_folder: '\'                     # タスクスケジューラライブラリ直下

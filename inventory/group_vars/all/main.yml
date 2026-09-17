@@ -8,6 +8,12 @@
 # 実施する場合は true に変更する（docs/01_構築手順.md「0. 今回のスコープ」参照）。
 enable_domain_join: false
 
+# タスクスケジューラへの登録（設計書 1.13）。今回は対象外。
+# 実行ユーザ Administrator が Azure の Windows VM には存在せず
+# （組み込み管理者は無効化・改名される）、win_scheduled_task が
+# SID 変換に失敗するため。詳細は docs/03_要確認事項.md B-4 参照。
+enable_scheduled_tasks: false
+
 ad_domain_name:    "PICKLES-CORP.pickles.co.jp"
 ad_netbios_name:   "PICKLES-CORP"
 ad_domain_ou_path: ""              # 空文字なら既定の Computers コンテナ
