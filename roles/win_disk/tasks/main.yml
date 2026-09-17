@@ -7,6 +7,40 @@
 #     先に Z: へ退避してからデータディスクへ D: を割り当てる。
 # ============================================================================
 
+- name: 一時ディスク上のページファイルを退避する（Azure 既定は D:\pagefile.sys）
+  # ページファイルが載っているとボリュームが使用中となり、後続の Set-Partition が
+  # StorageWMI 42012 で失敗する。設定の削除は再起動で初めて反映される。
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      $tempLetters = @(Get-Volume | Where-Object {
+          $_.FileSystemLabel -eq 'Temporary Storage' -and $_.DriveLetter
+      } | ForEach-Object { $_.DriveLetter })
+      if (-not $tempLetters) { return }
+      $removed = @()
+      foreach ($pf in @(Get-CimInstance Win32_PageFileSetting)) {
+          if ($tempLetters -contains $pf.Name.Substring(0, 1)) {
+              Remove-CimInstance -InputObject $pf -ErrorAction Stop
+              $removed += $pf.Name
+          }
+      }
+      if ($removed.Count -gt 0) {
+          $cs = Get-CimInstance Win32_ComputerSystem
+          Set-CimInstance -InputObject $cs -Property @{ AutomaticManagedPagefile = $true } -ErrorAction Stop
+          $Ansible.Changed = $true
+          $Ansible.Result  = "removed: $($removed -join ', ') / automatic managed pagefile enabled"
+      }
+  register: r_pagefile_evacuate
+  when: azure_move_temp_drive | bool
+
+- name: ページファイルを退避した場合は再起動する（ボリュームの使用を解放する）
+  ansible.windows.win_reboot:
+    reboot_timeout: 1800
+    post_reboot_delay: 30
+  when:
+    - azure_move_temp_drive | bool
+    - r_pagefile_evacuate.changed | default(false)
+
 - name: 一時ディスク(Temporary Storage)のドライブ文字を退避する
   ansible.windows.win_powershell:
     script: |

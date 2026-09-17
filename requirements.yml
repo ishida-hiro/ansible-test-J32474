@@ -7,4 +7,5 @@ collections:
     version: ">=3.0.0"
   - name: microsoft.ad         # ドメイン参加 / DC 昇格
     version: ">=1.7.0"
+  - name: ansible.posix    # profile_tasks / timer コールバック（ansible.cfg の callbacks_enabled が要求）
   - name: ansible.utils

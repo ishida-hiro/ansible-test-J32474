@@ -218,6 +218,7 @@ variable "ansible_collections" {
     "ansible.windows:>=3.0.0",
     "community.windows:>=3.0.0",
     "microsoft.ad:>=1.7.0",
+    "ansible.posix",
     "ansible.utils",
   ]
 }
