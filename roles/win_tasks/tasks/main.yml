@@ -72,7 +72,9 @@
   loop: "{{ scheduled_tasks_target }}"
   loop_control:
     label: "{{ item.name }} ({{ item.trigger.type }} {{ item.trigger.start_boundary }})"
-  no_log: true                        # 実行ユーザのパスワードをログへ出力しない
+  # 実行ユーザのパスワードをログへ出力しない。
+  # 失敗時の切り分けでは -e task_no_log=false で一時的に無効化できる。
+  no_log: "{{ task_no_log | bool }}"
 
 - name: 登録済みタスクを確認する
   ansible.windows.win_powershell:

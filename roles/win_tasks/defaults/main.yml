@@ -10,3 +10,8 @@ scheduled_tasks: []
 task_folder: '\'                     # タスクスケジューラライブラリ直下
 task_run_level: highest              # 最上位の特権で実行する
 task_logon_type: password            # ユーザがログオンしているかどうかにかかわらず実行する
+
+# タスク登録時に実行ユーザのパスワードをログへ出さないための no_log 制御。
+# 失敗の切り分け時のみ -e task_no_log=false で一時的に無効化する。
+# 無効化するとパスワードがログに残るため、検証環境限定で使い、ログは共有しないこと。
+task_no_log: true
