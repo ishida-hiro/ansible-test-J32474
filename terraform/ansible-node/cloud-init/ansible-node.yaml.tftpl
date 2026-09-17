@@ -3,6 +3,11 @@
 # Ansible 実行用サーバ 初期セットアップ（Terraform が生成）
 #   完了マーカー: /var/log/ansible-node-setup.done
 #   ログ        : /var/log/cloud-init-output.log
+#
+# ※ /home/${admin_username} 配下へ出力する write_files には defer: true が必須。
+#    既定では write_files が users-groups より先に走るため、ユーザ作成前に
+#    /home/${admin_username} が root 所有で作られ、以降の venv 作成が
+#    Permission denied で失敗する。
 # ============================================================================
 timezone: Asia/Tokyo
 locale: ja_JP.UTF-8
@@ -26,6 +31,7 @@ write_files:
   - path: /home/${admin_username}/collection-requirements.yml
     permissions: "0644"
     owner: ${admin_username}:${admin_username}
+    defer: true
     content: |
       ---
       # ansible-windows-build/requirements.yml と同等の内容
@@ -46,9 +52,71 @@ write_files:
       fi
       export ANSIBLE_COLLECTIONS_PATH="$HOME/.ansible/collections"
 
+  # セットアップ本体。runcmd に直接書くと 1 コマンドの失敗で中断しないため、
+  # fail-fast なスクリプトに切り出して完了マーカーへ成否を明示する。
+  - path: /usr/local/sbin/ansible-node-setup.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Ansible 実行用サーバ セットアップ本体（cloud-init の runcmd から起動される）
+      set -uo pipefail
+
+      MARKER=/var/log/ansible-node-setup.done
+      USER_NAME=${admin_username}
+      USER_HOME=/home/${admin_username}
+
+      fail() {
+        {
+          echo
+          echo "RESULT: FAILED"
+          echo "FAILED STEP: $1"
+          echo "finished at $(date -Is)"
+        } >> "$MARKER"
+        echo "ansible-node-setup: FAILED at $1" >&2
+        exit 1
+      }
+
+      as_user() {
+        echo "ansible-node-setup: $1"
+        su -l "$USER_NAME" -c "$2" || fail "$1"
+      }
+
+      : > "$MARKER"
+
+      # write_files が users-groups より先に走った場合に備えて所有者を正す
+      # （defer: true で回避済みだが、取りこぼしても必ず復旧できるようにする）
+      chown -R "$USER_NAME":"$USER_NAME" "$USER_HOME" || fail "chown $USER_HOME"
+
+      # ---- Python 仮想環境と Ansible --------------------------------------
+      as_user "venv 作成"        "python3 -m venv ~/venv-ansible"
+      as_user "pip 更新"         "~/venv-ansible/bin/pip install --upgrade pip wheel setuptools"
+      as_user "ansible-core 導入" "~/venv-ansible/bin/pip install 'ansible-core${ansible_core_version}' pywinrm requests-ntlm"
+
+      # ---- Windows 管理用コレクション --------------------------------------
+      as_user "コレクション導入" "~/venv-ansible/bin/ansible-galaxy collection install -r ~/collection-requirements.yml"
+
+      # ---- Playbook リポジトリ ---------------------------------------------
+%{ if git_repository_url != "" ~}
+      as_user "リポジトリ clone" "git clone ${git_repository_url} ~/ansible-windows-build"
+%{ else ~}
+      as_user "作業ディレクトリ作成" "mkdir -p ~/ansible-windows-build"
+%{ endif ~}
+      # logs/ は .gitignore 対象のため clone しても存在しない
+      as_user "logs ディレクトリ作成" "mkdir -p ~/ansible-windows-build/logs"
+
+      # ---- 完了マーカー -----------------------------------------------------
+      su -l "$USER_NAME" -c "~/venv-ansible/bin/ansible --version" >> "$MARKER" 2>&1 \
+        || fail "ansible --version"
+      {
+        echo
+        echo "RESULT: SUCCESS"
+        echo "finished at $(date -Is)"
+      } >> "$MARKER"
+
   - path: /home/${admin_username}/README-setup.md
     permissions: "0644"
     owner: ${admin_username}:${admin_username}
+    defer: true
     content: |
       # Ansible 実行用サーバ
 
@@ -85,23 +153,6 @@ write_files:
       再作成は運用端末側で `terraform apply` を実行してください。
 
 runcmd:
-  # ---- Python 仮想環境と Ansible ----------------------------------------
-  - [ su, -l, "${admin_username}", -c, "python3 -m venv ~/venv-ansible" ]
-  - [ su, -l, "${admin_username}", -c, "~/venv-ansible/bin/pip install --upgrade pip wheel setuptools" ]
-  - [ su, -l, "${admin_username}", -c, "~/venv-ansible/bin/pip install 'ansible-core${ansible_core_version}' pywinrm requests-ntlm" ]
-
-  # ---- Windows 管理用コレクション ----------------------------------------
-  - [ su, -l, "${admin_username}", -c, "~/venv-ansible/bin/ansible-galaxy collection install -r ~/collection-requirements.yml" ]
-
-  # ---- Playbook リポジトリ -------------------------------------------------
-%{ if git_repository_url != "" ~}
-  - [ su, -l, "${admin_username}", -c, "git clone ${git_repository_url} ~/ansible-windows-build" ]
-%{ else ~}
-  - [ su, -l, "${admin_username}", -c, "mkdir -p ~/ansible-windows-build" ]
-%{ endif ~}
-
-  # ---- 完了マーカー ---------------------------------------------------------
-  - [ sh, -c, "su -l ${admin_username} -c '~/venv-ansible/bin/ansible --version' > /var/log/ansible-node-setup.done 2>&1" ]
-  - [ sh, -c, "echo 'setup finished at' $(date -Is) >> /var/log/ansible-node-setup.done" ]
+  - [ /usr/local/sbin/ansible-node-setup.sh ]
 
 final_message: "Ansible 実行用サーバのセットアップが完了しました（所要 $UPTIME 秒）"

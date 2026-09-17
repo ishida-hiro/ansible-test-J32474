@@ -419,15 +419,29 @@ ssh azureuser@<FQDN>          # Outputs の ssh_command
 
 ```bash
 cloud-init status --wait
-cat /var/log/ansible-node-setup.done      # ansible --version の結果が入る
+cat /var/log/ansible-node-setup.done      # ansible --version の結果と成否が入る
 ```
+
+**マーカーの最終行が `RESULT: SUCCESS` であることを必ず確認してください。**
+
+```
+ansible [core 2.x.x]
+  ...
+RESULT: SUCCESS
+finished at 2026-09-17T10:12:34+09:00
+```
+
+失敗している場合は `RESULT: FAILED` と `FAILED STEP: <失敗した工程>` が出ます。
+`cloud-init status` が `done` でもセットアップは失敗していることがあるため、
+**マーカーの中身まで見ること**が必要です（手順 14 のトラブルシューティング参照）。
 
 セットアップ済みの内容:
 
 - タイムゾーン `Asia/Tokyo` / ロケール `ja_JP.UTF-8`
 - Python 仮想環境 `~/venv-ansible`（ログイン時に自動で有効化）
 - `ansible-core` / `pywinrm` / `requests-ntlm`
-- コレクション `ansible.windows` / `community.windows` / `microsoft.ad` / `ansible.utils`
+- コレクション `ansible.windows` / `community.windows` / `microsoft.ad` / `ansible.posix` / `ansible.utils`
+- Playbook リポジトリ `~/ansible-windows-build`（`logs/` 付き）
 
 Windows サーバへのポート疎通もここで確認できます。
 
@@ -454,6 +468,15 @@ git clone https://github.com/ishida-hiro/ansible-test-J32474.git ~/ansible-windo
 # 手元の端末で実行（Outputs の upload_playbook_command と同じ）
 rsync -av --exclude .git --exclude logs --exclude evidence \
   ./ansible-windows-build/ azureuser@<FQDN>:~/ansible-windows-build/
+```
+
+**方法 A / B 共通: ログ出力先を作る**
+
+`logs/` と `evidence/` は `.gitignore` の対象なので、clone しても rsync しても作られません。
+Playbook の実行ログを `tee logs/...` で残すため、先に作成しておきます。
+
+```bash
+mkdir -p ~/ansible-windows-build/logs
 ```
 
 ### 11.2 認証情報を設定する
@@ -592,12 +615,61 @@ make wincheck           # Ansible 実行サーバから WinRM 疎通を確認
 | SSH がタイムアウトする | 接続元 IP が NSG 許可範囲外 | `curl -s https://ifconfig.me` で現在の IP を確認し変数を更新して apply |
 | SSH が `Permission denied (publickey)` | 登録した公開鍵と手元の秘密鍵が不一致 | `ssh -i ~/.ssh/id_ed25519 azureuser@<FQDN>` で鍵を明示する |
 | `ansible` コマンドが無い | cloud-init 未完了 | `cloud-init status --wait` で完了を待つ |
+| `cloud-init status` は `done` なのに `ansible` コマンドが無い / `~/venv-ansible` が存在しない | cloud-init のセットアップが途中で失敗している | `/var/log/ansible-node-setup.done` の `RESULT:` を見る。`FAILED` なら下の「cloud-init セットアップが失敗した場合の復旧」へ |
+| `/var/log/cloud-init-output.log` に `Error: [Errno 13] Permission denied: '/home/azureuser/venv-ansible'` | `write_files` が `users-groups` より先に走り、ユーザ作成前に `/home/azureuser` が **root 所有**で作られた。以降の venv 作成が自分の home に書けず失敗する | 現行テンプレートは `defer: true` と `runcmd` 冒頭の `chown` で対処済み。古い VM では下の復旧手順を実行する |
+| `ansible-galaxy collection install -r ~/collection-requirements.yml` が `does not exist` | `write_files` が最初のエントリで例外を起こし、3 件すべてスキップされた | リポジトリ同梱の `~/ansible-windows-build/requirements.yml` を代わりに使う |
+| ログインしても venv が有効にならない / `ANSIBLE_COLLECTIONS_PATH` が空 | `/etc/profile.d/99-ansible.sh` が生成されていない（同上） | 下の復旧手順で `sudo tee` により手動作成する |
+| `ansible-playbook ... \| tee logs/xxx.log` が `No such file or directory` | `logs/` は `.gitignore` 対象のため clone/rsync では作られない | `mkdir -p ~/ansible-windows-build/logs`（手順 11.1） |
+| Playbook が `Could not load 'yaml' callback plugin` で即停止 | `stdout_callback = yaml` は ansible-core から削除済み | `ansible.cfg` を `stdout_callback = default` + `result_format = yaml` にする（リポジトリは対応済み） |
+| Playbook が `callback plugin 'profile_tasks' ... not found` | `ansible.posix` コレクションが未導入（`ansible.cfg` の `callbacks_enabled` が要求） | `ansible-galaxy collection install ansible.posix`。`requirements.yml` にも記載済み |
 | VM が停止している | 自動シャットダウン（毎日 21:00 JST） | Azure Portal で起動する。不要なら `enable_auto_shutdown = false` |
 | `nc -vz <Windows IP> 5986` がタイムアウト | Ansible 実行サーバを作り直して Public IP が変わった | 再度 apply して NSG を更新する（同一構成内なら自動追従する） |
 | `win_ping` が `Connection refused` | WinRM 未有効化 | Run Command が失敗している。Azure Portal の VM → 「実行コマンド」で `bootstrap_winrm.ps1` を再実行する（手順 9） |
 | `win_ping` が `the specified credentials were rejected` | `vault.yml` の値が Terraform 側と不一致 | `windows_admin_password_generated` の値を `vault_local_admin_password` に設定する（手順 11.2） |
 | `win_ping` が `certificate verify failed` | 証明書検証が有効 | `inventory/group_vars/windows.yml` の `ansible_winrm_server_cert_validation: ignore` を確認する |
 | `win_ping` で名前解決に失敗する | `ansible_host` が private IP のまま | Windows の **Public IP** に変更する（手順 11.3） |
+
+### cloud-init セットアップが失敗した場合の復旧
+
+`/var/log/ansible-node-setup.done` が `RESULT: FAILED` のとき、または古いテンプレートで
+払い出した VM で `~/venv-ansible` が存在しないときの手順です。
+**VM を作り直せるなら作り直すのが確実です**（現行テンプレートは同じ失敗をしません）。
+
+```bash
+# 1. 何が起きたかを確認する
+cat /var/log/ansible-node-setup.done
+grep -nE 'venv|python3|Setting up|E: |ERROR|Traceback' /var/log/cloud-init-output.log
+ls -ld /home/azureuser
+ls -la ~/venv-ansible/bin/ 2>/dev/null
+
+# 2. home の所有者を戻す（root 所有になっているのが典型）
+sudo chown -R azureuser:azureuser /home/azureuser
+
+# 3. venv と Ansible を入れ直す
+python3 -m venv ~/venv-ansible
+~/venv-ansible/bin/pip install --upgrade pip wheel setuptools
+~/venv-ansible/bin/pip install 'ansible-core>=2.16' pywinrm requests-ntlm
+
+# 4. Playbook リポジトリを取得する（clone も失敗しているのが典型）
+git clone https://github.com/ishida-hiro/ansible-test-J32474.git ~/ansible-windows-build
+mkdir -p ~/ansible-windows-build/logs
+
+# 5. コレクションを入れる（collection-requirements.yml も無いことが多いので同梱の requirements.yml を使う）
+~/venv-ansible/bin/ansible-galaxy collection install -r ~/ansible-windows-build/requirements.yml
+
+# 6. ログインプロファイルを手動で作る（/etc/profile.d/99-ansible.sh も無いことがある）
+sudo tee /etc/profile.d/99-ansible.sh >/dev/null <<'EOF'
+if [ -f "$HOME/venv-ansible/bin/activate" ]; then
+  . "$HOME/venv-ansible/bin/activate"
+fi
+export ANSIBLE_COLLECTIONS_PATH="$HOME/.ansible/collections"
+EOF
+
+# 7. 確認
+exec bash -l
+ansible --version
+ansible-galaxy collection list | head
+```
 
 ---
 
