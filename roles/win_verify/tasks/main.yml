@@ -27,6 +27,10 @@
     ev: "{{ r_evidence.stdout | from_json }}"
 
 # ---- 設計値との突合せ -------------------------------------------------------
+# 実機値の既定値処理に `| default(D, true)` を使わないこと。
+# 第2引数が true の default は「未設定なら D」ではなく「falsy なら D」で動くため、
+# 正しく 0 が設定されていても D にすり替わり、設計値 0 の項目が必ず不一致になる。
+# レジストリ値が無い（null）ときだけ D とするため、明示的に is none で判定する。
 - name: 設計値と実機設定値を突合せる
   ansible.builtin.set_fact:
     verify_results: >-
@@ -37,14 +41,14 @@
           {'項目': '1.2 ドメイン参加',          '設計値': ad_domain_name,                                '実機値': ev.Domain},
           {'項目': '1.6 タイムゾーン',          '設計値': os_timezone,                                   '実機値': ev.TimeZone},
           {'項目': '1.6 システムロケール',      '設計値': os_locale,                                     '実機値': ev.SystemLocale},
-          {'項目': '1.5 IPv6無効(0xFF=255)',    '設計値': 255 if disable_ipv6 | bool else 0,             '実機値': ev.IPv6Disabled | default(0, true)},
+          {'項目': '1.5 IPv6無効(0xFF=255)',    '設計値': 255 if disable_ipv6 | bool else 0,             '実機値': (0 if (ev.IPv6Disabled | default(none)) is none else ev.IPv6Disabled)},
           {'項目': '1.5 IPv6バインド有効数',    '設計値': 0 if disable_ipv6 | bool else '-',             '実機値': ev.IPv6Binding},
-          {'項目': '1.12 UAC(EnableLUA)',       '設計値': 0 if disable_uac | bool else 1,                '実機値': ev.EnableLUA | default(1, true)},
-          {'項目': '1.12 luafv(Start)',         '設計値': 4 if disable_uac | bool else 2,                '実機値': ev.LuafvStart | default(2, true)},
-          {'項目': '1.11 Defender無効(ポリシー)','設計値': 1 if disable_defender_by_policy | bool else '-', '実機値': ev.DefenderPolicy | default('未設定', true)},
-          {'項目': '1.7 RDP許可(fDeny=0)',      '設計値': 0 if enable_rdp | bool else 1,                 '実機値': ev.DenyTSConnections | default(1, true)},
-          {'項目': '1.7 NLA要求',               '設計値': 1 if rdp_require_nla | bool else 0,            '実機値': ev.UserAuthentication | default(0, true)},
-          {'項目': '1.14 自動更新の構成=無効',  '設計値': 1 if disable_auto_update_policy | bool else '-', '実機値': ev.NoAutoUpdate | default('未設定', true)}
+          {'項目': '1.12 UAC(EnableLUA)',       '設計値': 0 if disable_uac | bool else 1,                '実機値': (1 if (ev.EnableLUA | default(none)) is none else ev.EnableLUA)},
+          {'項目': '1.12 luafv(Start)',         '設計値': 4 if disable_uac | bool else 2,                '実機値': (2 if (ev.LuafvStart | default(none)) is none else ev.LuafvStart)},
+          {'項目': '1.11 Defender無効(ポリシー)','設計値': 1 if disable_defender_by_policy | bool else '-', '実機値': ('未設定' if (ev.DefenderPolicy | default(none)) is none else ev.DefenderPolicy)},
+          {'項目': '1.7 RDP許可(fDeny=0)',      '設計値': 0 if enable_rdp | bool else 1,                 '実機値': (1 if (ev.DenyTSConnections | default(none)) is none else ev.DenyTSConnections)},
+          {'項目': '1.7 NLA要求',               '設計値': 1 if rdp_require_nla | bool else 0,            '実機値': (0 if (ev.UserAuthentication | default(none)) is none else ev.UserAuthentication)},
+          {'項目': '1.14 自動更新の構成=無効',  '設計値': 1 if disable_auto_update_policy | bool else '-', '実機値': ('未設定' if (ev.NoAutoUpdate | default(none)) is none else ev.NoAutoUpdate)}
         ]
       }}
 
