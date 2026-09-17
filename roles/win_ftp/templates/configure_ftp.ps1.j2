@@ -1,3 +1,6 @@
+﻿# ※ 先頭の BOM は必須。Windows PowerShell 5.1 は BOM の無い .ps1 を
+#    システムの ANSI コードページ（日本語環境では CP932）として読むため、
+#    BOM を外すと本文の日本語が文字化けして構文エラーになる。
 # ============================================================================
 # FTP サイト構成スクリプト（Ansible が生成 / 設計書 1.16 FTP設定）
 #   冪等性を保つため、既存設定と一致する場合は変更しない。
@@ -100,7 +103,10 @@ Set-IfDifferent -Path $sitePath -Name 'ftpServer.logFile.directory' -Value '{{ f
 Set-IfDifferent -Path $sitePath -Name 'ftpServer.logFile.period'    -Value '{{ ftp_log_rollover }}'
 
 # サイト起動
-$state = (Get-WebFtpSite -Name $siteName -ErrorAction SilentlyContinue).State
+# WebAdministration には Get-WebFtpSite は無い（作成用の New-WebFtpSite のみ）。
+# FTP サイトも IIS:\Sites 配下に並ぶため Get-Website で状態を取る。
+# -Name のフィルタが効かない版があるので Where-Object で絞る。
+$state = (Get-Website | Where-Object { $_.Name -eq $siteName }).State
 if ($state -ne 'Started') {
     Start-WebItem -PSPath $sitePath -ErrorAction SilentlyContinue
     $script:changed = $true
