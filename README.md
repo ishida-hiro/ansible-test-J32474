@@ -45,6 +45,9 @@ ansible-windows-build/
 │   ├── group_vars/             # 設計書「1.概要」の共通パラメータ
 │   │   └── fileserver.yml      # ★今回の設計対象（シート「8.ファイルサーバ」）
 │   └── host_vars/              # ホスト個別パラメータ
+│       └── Ansible-TEST-FS/
+│           ├── main.yml        # 設計値（git 管理）
+│           └── connection.yml  # 接続先 IP（git 管理外／.example を複製して作る）
 ├── roles/                      # 14 ロール（docs/02_ロール一覧.md 参照）
 ├── playbooks/
 │   ├── site.yml                # 一括実行
@@ -78,9 +81,11 @@ ansible-galaxy collection install -r requirements.yml
 # 3. 対象サーバで WinRM を有効化（1回だけ / RDP または RunCommand で実行）
 #    terraform/scripts/bootstrap_winrm.ps1
 
-# 4. 接続先と認証情報を実機に合わせる（いずれも仮値が入っています）
-vi inventory/test.yml                          # ansible_host を実機 IP に
-vi inventory/group_vars/all/vault.yml          # 仮パスワードを実機の値に
+# 4. 接続先と認証情報を実機に合わせる（いずれも .example を複製して作る）
+cp inventory/host_vars/Ansible-TEST-FS/connection.yml{.example,}
+vi inventory/host_vars/Ansible-TEST-FS/connection.yml   # ansible_host を実機 IP に
+cp inventory/group_vars/all/vault.yml{.example,}
+vi inventory/group_vars/all/vault.yml                   # 仮パスワードを実機の値に
 
 # 5. 接続確認
 ansible windows -m ansible.windows.win_ping

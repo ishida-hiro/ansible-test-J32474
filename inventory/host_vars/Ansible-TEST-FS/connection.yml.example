@@ -1,0 +1,17 @@
+---
+# ============================================================================
+# Ansible-TEST-FS : 接続先（環境固有・git 管理外）
+#   このファイルを connection.yml として複製し、実機の IP に書き換えて使う。
+#
+#     cp inventory/host_vars/Ansible-TEST-FS/connection.yml.example \
+#        inventory/host_vars/Ansible-TEST-FS/connection.yml
+#
+#   接続先 IP は VM を作り直すたびに変わるため、インベントリ本体
+#   （inventory/test.yml）ではなくここに置いて git 管理から外している。
+#   本体側に置くと、git pull のたびに衝突・上書きで失われる。
+#
+#   構築時は Public IP 経由で WinRM 接続する（Terraform Outputs の
+#   windows_public_ip_address / docs/04_Ansible実行サーバ構築手順.md 手順 11.3）。
+#   閉域構成へ移行した際は private IP に戻す。
+# ============================================================================
+ansible_host: 203.0.113.20

@@ -13,6 +13,10 @@
 #     ・タスクスケジューラ「SHM商品マスター更新」（概要 1.13 No.1）
 #     ・タスクスケジューラへの登録そのもの（enable_scheduled_tasks: false）
 #   詳細は docs/01_構築手順.md「0. 今回のスコープ」を参照。
+#
+#   接続先 IP はここには書かない。環境ごとに変わる値を git 管理下に置くと
+#   git pull のたびに衝突・上書きで失われるため、host_vars 配下の
+#   connection.yml（git 管理外）に分離している。
 # ============================================================================
 all:
   children:
@@ -23,5 +27,6 @@ all:
         # --- ファイルサーバ相当の検証機（設計書 No.7 の設定を適用する） -----
         fileserver:
           hosts:
+            # 接続先 IP は host_vars/Ansible-TEST-FS/connection.yml で指定する
+            # （git 管理外。connection.yml.example を複製して作成する）
             Ansible-TEST-FS:
-              ansible_host: 10.0.1.17      # 仮値。実機の IP に置き換えること

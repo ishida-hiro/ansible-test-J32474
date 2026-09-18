@@ -3,6 +3,8 @@ logs/
 evidence/
 *.retry
 inventory/group_vars/all/vault.yml
+# 接続先 IP は環境ごとに異なるため管理外（.example を複製して作る）
+inventory/host_vars/*/connection.yml
 
 # ---- Terraform --------------------------------------------------------------
 **/.terraform/

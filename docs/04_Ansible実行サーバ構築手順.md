@@ -357,7 +357,7 @@ apply 完了後、ワークスペースの **Outputs** に接続情報が表示�
 | 出力 | 用途 |
 | --- | --- |
 | `ssh_command` | Ansible 実行サーバへの SSH コマンド（手順 10） |
-| `windows_public_ip_address` | `inventory/test.yml` の `ansible_host` に設定（手順 11） |
+| `windows_public_ip_address` | 検証機の `connection.yml` の `ansible_host` に設定（手順 11.3） |
 | `windows_admin_username` | `vault_local_admin_user` に設定（既定 `picklesadmin`） |
 | `windows_admin_password_generated` | `vault_local_admin_password` に設定（手順 11） |
 
@@ -504,21 +504,26 @@ ansible-vault encrypt inventory/group_vars/all/vault.yml
 
 ### 11.3 接続先を Windows の Public IP に設定する
 
-構築時は Public IP 経由で WinRM 接続するため、インベントリの `ansible_host` に
-**Windows サーバの Public IP** を設定します（既定値は仮の private IP です）。
+構築時は Public IP 経由で WinRM 接続するため、`ansible_host` に
+**Windows サーバの Public IP** を設定します。
+
+接続先 IP は VM を作り直すたびに変わる環境固有の値のため、インベントリ本体
+（`inventory/test.yml`）ではなく **git 管理外の `connection.yml`** に置いています。
+`.example` を複製して作成してください。
 
 ```bash
-vi inventory/test.yml
+cp inventory/host_vars/Ansible-TEST-FS/connection.yml{.example,}
+vi inventory/host_vars/Ansible-TEST-FS/connection.yml
 ```
 
 ```yaml
-fileserver:
-  hosts:
-    Ansible-TEST-FS:
-      ansible_host: 203.0.113.20      # ← Outputs の windows_public_ip_address
+ansible_host: 203.0.113.20      # ← Outputs の windows_public_ip_address
 ```
 
 > 閉域構成へ移行した際は、private IP に戻してください。
+
+このファイルが無いと、`ansible_host` が未定義のままホスト名
+`Ansible-TEST-FS` を名前解決しようとして接続に失敗します。
 
 ---
 
@@ -627,7 +632,7 @@ make wincheck           # Ansible 実行サーバから WinRM 疎通を確認
 | `win_ping` が `Connection refused` | WinRM 未有効化 | Run Command が失敗している。Azure Portal の VM → 「実行コマンド」で `bootstrap_winrm.ps1` を再実行する（手順 9） |
 | `win_ping` が `the specified credentials were rejected` | `vault.yml` の値が Terraform 側と不一致 | `windows_admin_password_generated` の値を `vault_local_admin_password` に設定する（手順 11.2） |
 | `win_ping` が `certificate verify failed` | 証明書検証が有効 | `inventory/group_vars/windows.yml` の `ansible_winrm_server_cert_validation: ignore` を確認する |
-| `win_ping` で名前解決に失敗する | `ansible_host` が private IP のまま | Windows の **Public IP** に変更する（手順 11.3） |
+| `win_ping` で名前解決に失敗する | `connection.yml` が未作成、または `ansible_host` が private IP のまま | `.example` を複製し Windows の **Public IP** を設定する（手順 11.3） |
 
 ### cloud-init セットアップが失敗した場合の復旧
 

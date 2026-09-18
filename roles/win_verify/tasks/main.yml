@@ -31,6 +31,10 @@
 # 第2引数が true の default は「未設定なら D」ではなく「falsy なら D」で動くため、
 # 正しく 0 が設定されていても D にすり替わり、設計値 0 の項目が必ず不一致になる。
 # レジストリ値が無い（null）ときだけ D とするため、明示的に is none で判定する。
+#
+# 設計値は「設計書の値」ではなく「この実行条件で期待される値」を置くこと。
+# 例: enable_domain_join = false ならドメイン名ではなく WORKGROUP が正しい期待値。
+# 突合せ対象から外したい項目は設計値を '-' にする（不一致判定・assert ともに除外）。
 - name: 設計値と実機設定値を突合せる
   ansible.builtin.set_fact:
     verify_results: >-
@@ -38,7 +42,7 @@
         [
           {'項目': '1.1 OSバージョン',         '設計値': os_version | default('-'),                      '実機値': ev.OSVersion},
           {'項目': '3. コンピュータ名',         '設計値': computer_name | default(inventory_hostname),   '実機値': ev.ComputerName},
-          {'項目': '1.2 ドメイン参加',          '設計値': ad_domain_name,                                '実機値': ev.Domain},
+          {'項目': '1.2 ドメイン参加',          '設計値': (ad_domain_name if enable_domain_join | bool else 'WORKGROUP'), '実機値': ev.Domain},
           {'項目': '1.6 タイムゾーン',          '設計値': os_timezone,                                   '実機値': ev.TimeZone},
           {'項目': '1.6 システムロケール',      '設計値': os_locale,                                     '実機値': ev.SystemLocale},
           {'項目': '1.5 IPv6無効(0xFF=255)',    '設計値': 255 if disable_ipv6 | bool else 0,             '実機値': (0 if (ev.IPv6Disabled | default(none)) is none else ev.IPv6Disabled)},

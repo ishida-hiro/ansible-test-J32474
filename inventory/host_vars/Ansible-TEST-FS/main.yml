@@ -5,9 +5,16 @@
 #   ※設計書のコンピュータ名欄（シート8 3. ｺﾝﾋﾟｭｰﾀ名）はサンプル版でマスク。
 #   ※今回の初期構築ではドメイン参加は行わない
 #     （inventory/group_vars/all/main.yml の enable_domain_join: false）
+#
+#   接続先 IP は環境ごとに異なるため、同ディレクトリの connection.yml
+#   （git 管理外／connection.yml.example を複製して作成）に分離している。
 # ============================================================================
 computer_name:   "Ansible-TEST-FS"
-os_version:      "Windows Server 2025 Datacenter"
+# 設計書（シート8 1.1）の値は "Windows Server 2025 Datacenter"。
+# 検証環境は Azure Marketplace イメージのため OS 名が "... Azure Edition" になる。
+# 99_verify.yml の突合せは「この実行条件で期待される値」と比較するため、
+# 検証機に限りイメージ側の表記へ合わせる。本番機（S-AZR-00x）は設計書の値のまま。
+os_version:      "Windows Server 2025 Datacenter Azure Edition"
 server_purpose:  "検証機(ファイルサーバ相当 / FSRM・FTP)"
 
 # ---- 1.8 時刻同期設定 -------------------------------------------------------
