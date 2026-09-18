@@ -65,6 +65,7 @@ ansible-windows-build/
 │   ├── 02_ロール一覧.md / .xlsx        # ロールと設計書の対応表
 │   ├── 03_要確認事項.md / .xlsx        # ★ 実行前に必ずご確認ください
 │   ├── 04_Ansible実行サーバ構築手順.md / .docx  # ★ Terraform / HCP でのサーバ払い出し
+│   ├── 05_検証結果まとめ.md / .docx     # 実機検証の結果・試行錯誤・所要時間
 │   └── tools/                          # Office 版の生成スクリプト
 ├── evidence/                   # 証跡出力先（git 管理外）
 └── logs/                       # 実行ログ（git 管理外）
