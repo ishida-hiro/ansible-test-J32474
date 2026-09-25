@@ -1,12 +1,13 @@
 ---
 # ============================================================================
 # site.yml : Windows サーバ構築 一括実行
-#   設計書「sample_Windows詳細設計書」（シート「1.概要」「8.ファイルサーバ」）
-#   に基づく全工程を順に実行する。
+#   設計書（案件ごとの値は inventories/<案件>/ に定義）に基づく全工程を順に実行する。
+#   対象案件はインベントリで選ぶ。ansible.cfg に既定のインベントリは置いていないため
+#   -i の指定は必須（別案件のサーバへ誤って流さないため）。
 #
 #   実行例:
-#     ansible-playbook playbooks/site.yml --ask-vault-pass
-#     ansible-playbook playbooks/site.yml -i inventory/hosts.yml -l S-AZR-007 --ask-vault-pass
+#     ansible-playbook playbooks/site.yml -i inventories/pickles/test.yml --ask-vault-pass
+#     ansible-playbook playbooks/site.yml -i inventories/pickles/hosts.yml -l S-AZR-007 --ask-vault-pass
 #
 #   工程:
 #     1) 01_os_initial.yml : OS初期設定（設計書 1.4〜1.7, 1.10〜1.12, 1.14, 1.15）
@@ -25,7 +26,7 @@
           - vault_local_admin_user is defined
           - vault_local_admin_password is defined
         fail_msg: >-
-          inventory/group_vars/all/vault.yml が未作成です。
+          inventories/<案件>/group_vars/all/vault.yml が未作成です。
           vault.yml.example をコピーして値を設定し、ansible-vault encrypt してください。
         quiet: true
       run_once: true

@@ -9,8 +9,7 @@ firewall_log_dropped: false       # 破棄されたパケットをログに記�
 firewall_log_allowed: false       # 正常な接続をログに記録する           = いいえ
 firewall_notifications: false     # 通知を表示する                        = いいえ
 
-# ---- 1.11 Windows Defender --------------------------------------------------
-disable_defender_by_policy: true
-
-# ---- 1.12 ユーザアカウント制御 ---------------------------------------------
-disable_uac: true
+# ---- 1.11 Windows Defender / 1.12 ユーザアカウント制御 ---------------------
+# disable_defender_by_policy / disable_uac は win_verify でも使うため
+# win_standard で定義している
+# 共通の設定値は roles/win_standard/defaults/main.yml を参照（meta の依存で読み込む）

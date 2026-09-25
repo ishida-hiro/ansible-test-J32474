@@ -107,7 +107,7 @@ output "windows_admin_password" {
   description = <<-EOT
     Windows のローカル管理者パスワード。
     ローカル実行時の取得: terraform output -raw windows_admin_password
-    inventory/group_vars/all/vault.yml の vault_local_admin_password に設定する。
+    inventories/pickles/group_vars/all/vault.yml の vault_local_admin_password に設定する。
   EOT
   value       = local.create_windows ? local.windows_admin_password : null
   sensitive   = true
@@ -149,7 +149,7 @@ output "windows_winrm_check_command" {
 
 output "windows_inventory_snippet" {
   description = <<-EOT
-    inventory/test.yml の ansible_host に設定する値。
+    inventories/pickles/test.yml の ansible_host に設定する値。
     Ansible 実行サーバからは Public IP 経由で接続する。
   EOT
   value = local.create_windows ? format(

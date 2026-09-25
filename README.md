@@ -39,16 +39,19 @@ IP アドレス・ディスク構成・パスワードは **仮値** です。
 ansible-windows-build/
 ├── ansible.cfg
 ├── requirements.yml            # 依存コレクション
-├── inventory/
-│   ├── test.yml                # ★今回の対象（Ansible-TEST-FS 1台）／既定インベントリ
-│   ├── hosts.yml               # 本番相当の7台構成（-i で指定）
-│   ├── group_vars/             # 設計書「1.概要」の共通パラメータ
-│   │   └── fileserver.yml      # ★今回の設計対象（シート「8.ファイルサーバ」）
-│   └── host_vars/              # ホスト個別パラメータ
-│       └── Ansible-TEST-FS/
-│           ├── main.yml        # 設計値（git 管理）
-│           └── connection.yml  # 接続先 IP（git 管理外／.example を複製して作る）
-├── roles/                      # 14 ロール（docs/02_ロール一覧.md 参照）
+├── inventories/                # 案件固有の値（案件ごとに 1 ディレクトリ）
+│   ├── _template/              # 新規案件の雛形（README.md に置き場所の考え方）
+│   └── pickles/                # P様（実機検証済み）
+│       ├── test.yml            # ★検証の対象（Ansible-TEST-FS 1台）
+│       ├── hosts.yml           # 本番相当の7台構成
+│       ├── group_vars/         # 標準値との差分（設計書「1.概要」・用途別）
+│       │   └── fileserver.yml  # ★今回の設計対象（シート「8.ファイルサーバ」）
+│       └── host_vars/          # ホスト個別パラメータ
+│           └── Ansible-TEST-FS/
+│               ├── main.yml        # 設計値（git 管理）
+│               └── connection.yml  # 接続先 IP（git 管理外／.example を複製して作る）
+├── roles/                      # 全案件共通（docs/02_ロール一覧.md 参照）
+│   └── win_standard/           # JBCC 標準の既定値（タスクなし。各ロールが依存で読み込む）
 ├── playbooks/
 │   ├── site.yml                # 一括実行
 │   ├── 01_os_initial.yml       # OS 初期設定
@@ -83,16 +86,16 @@ ansible-galaxy collection install -r requirements.yml
 #    terraform/scripts/bootstrap_winrm.ps1
 
 # 4. 接続先と認証情報を実機に合わせる（いずれも .example を複製して作る）
-cp inventory/host_vars/Ansible-TEST-FS/connection.yml{.example,}
-vi inventory/host_vars/Ansible-TEST-FS/connection.yml   # ansible_host を実機 IP に
-cp inventory/group_vars/all/vault.yml{.example,}
-vi inventory/group_vars/all/vault.yml                   # 仮パスワードを実機の値に
+cp inventories/pickles/host_vars/Ansible-TEST-FS/connection.yml{.example,}
+vi inventories/pickles/host_vars/Ansible-TEST-FS/connection.yml   # ansible_host を実機 IP に
+cp inventories/pickles/group_vars/all/vault.yml{.example,}
+vi inventories/pickles/group_vars/all/vault.yml                   # 仮パスワードを実機の値に
 
 # 5. 接続確認
-ansible windows -m ansible.windows.win_ping
+ansible windows -i inventories/pickles/test.yml -m ansible.windows.win_ping
 
 # 6. 構築
-ansible-playbook playbooks/site.yml
+ansible-playbook playbooks/site.yml -i inventories/pickles/test.yml
 ```
 
 詳細は [docs/01_構築手順.md](docs/01_構築手順.md) を参照してください。

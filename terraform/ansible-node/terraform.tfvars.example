@@ -77,9 +77,9 @@ auto_shutdown_timezone = "Tokyo Standard Time"
 create_windows_server = true
 
 windows_vm_size       = "Standard_B2s"     # 検証用途の小さめサイズ（2vCPU/4GB）
-windows_computer_name = "Ansible-TEST-FS"  # inventory/test.yml のホスト名と揃える
+windows_computer_name = "Ansible-TEST-FS"  # inventories/pickles/test.yml のホスト名と揃える
 
-# Ansible の接続ユーザ。inventory/group_vars/all/vault.yml の
+# Ansible の接続ユーザ。inventories/pickles/group_vars/all/vault.yml の
 # vault_local_admin_user / vault_local_admin_password と一致させること。
 windows_admin_username = "picklesadmin"
 # 未指定なら自動生成される（terraform output windows_admin_password_generated で取得）

@@ -8,4 +8,5 @@ windows_update_categories:
   - Updates
 windows_update_reboot: true
 windows_update_max_rounds: 3      # 適用→再起動を繰り返す最大回数
-disable_auto_update_policy: true  # ローカルGPO「自動更新を構成する」= 無効
+# disable_auto_update_policy は win_verify でも使うため win_standard で定義している
+# 共通の設定値は roles/win_standard/defaults/main.yml を参照（meta の依存で読み込む）

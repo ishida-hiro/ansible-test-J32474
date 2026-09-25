@@ -2,7 +2,7 @@
 # ============================================================================
 # 認証情報テンプレート
 #   1) 本ファイルを vault.yml にコピーして値を設定
-#   2) ansible-vault encrypt inventory/group_vars/all/vault.yml
+#   2) ansible-vault encrypt inventories/pickles/group_vars/all/vault.yml
 #   ※ 平文のままリポジトリへコミットしないこと
 # ============================================================================
 vault_local_admin_user:      "picklesadmin"

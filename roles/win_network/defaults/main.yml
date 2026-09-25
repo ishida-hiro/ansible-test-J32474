@@ -1,3 +1,5 @@
 ---
-disable_ipv6: true
+# 設計書 1.5「ネットワーク設定」
+# disable_ipv6 は win_verify でも使うため win_standard で定義している
+# 共通の設定値は roles/win_standard/defaults/main.yml を参照（meta の依存で読み込む）
 hosts_entries: []

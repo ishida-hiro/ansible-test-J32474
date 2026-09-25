@@ -4,6 +4,5 @@ evidence_dir_remote: 'C:\build_evidence'
 evidence_dir_local: "{{ playbook_dir }}/../evidence"
 verify_fail_on_mismatch: false     # true にすると設計値と不一致でタスクを失敗させる
 
-# 突合せの期待値を切り替えるための参照（実体は group_vars/all/main.yml で定義する）
-enable_domain_join: false
-ad_domain_name: "PICKLES-CORP.pickles.co.jp"
+# 突合せの設計値（disable_uac など）は win_standard の既定値を案件インベントリで上書きしたもの。
+# 共通の設定値は roles/win_standard/defaults/main.yml を参照（meta の依存で読み込む）

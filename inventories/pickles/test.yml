@@ -5,8 +5,8 @@
 #   設計書「sample_Windows詳細設計書」シート「8.ファイルサーバ」＝ 概要 No.7 の
 #   設定を適用する。
 #
-#   本番相当の 7 台構成は inventory/hosts.yml を参照
-#   （実行時に -i inventory/hosts.yml を指定する）。
+#   本番相当の 7 台構成は inventories/pickles/hosts.yml を参照
+#   （実行時に -i inventories/pickles/hosts.yml を指定する）。
 #
 #   今回のスコープ外:
 #     ・ドメイン参加（enable_domain_join: false）

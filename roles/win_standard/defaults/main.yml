@@ -1,0 +1,47 @@
+---
+# ============================================================================
+# win_standard : JBCC 標準の設定値（全案件共通の既定値）
+#
+#   複数のロールから参照される設定値をここに集約する。
+#   特に win_verify（99_verify.yml）は構築ロールを読み込まずに設計値と突合せるため、
+#   構築ロール側の defaults に置いた値は参照できない。ここに置けば構築工程と
+#   検証工程の両方から同じ値が見える。
+#
+#   各ロールは meta/main.yml の dependencies で本ロールを読み込む。
+#   本ロールはタスクを持たず、既定値を提供するだけ。
+#
+#   ロールの defaults は変数の優先順位が最も低い。案件ごとの差分は
+#   inventories/<案件>/group_vars/ ・ host_vars/ で上書きする。
+#   ここの値は変更しないこと（全案件に影響する）。
+#
+#   ここに置く基準:
+#     ・2 つ以上のロールから参照される
+#     ・案件で変わらないことが多い（JBCC の設計書テンプレート「1.概要」の標準的な値）
+#   1 つのロールでしか使わない値は、そのロールの defaults に置く。
+# ============================================================================
+
+# ---- 1.2 ドメイン参加（win_domain / win_verify） ---------------------------
+# false の場合、win_domain は現状確認のみ行い、参加 / DC 昇格は実施しない。
+# true にする場合は案件側で ad_domain_name（と ad_netbios_name）を必ず指定する。
+enable_domain_join: false
+ad_domain_name: ""
+
+# ---- 1.6 言語設定（win_os_basic / win_verify） -----------------------------
+os_timezone: "Tokyo Standard Time"
+os_locale: "ja-JP"
+
+# ---- 1.5 ネットワーク設定（win_network / win_verify） ----------------------
+disable_ipv6: true                 # レジストリ DisabledComponents=0xFF + バインド解除
+
+# ---- 1.7 リモート接続設定（win_remote / win_verify） -----------------------
+enable_rdp: true
+rdp_require_nla: true              # ネットワークレベル認証で接続を許可する
+
+# ---- 1.11 Windows Defender（win_security / win_verify） --------------------
+disable_defender_by_policy: true   # 他社製セキュリティソフト導入のためポリシーで無効化
+
+# ---- 1.12 ユーザアカウント制御（win_security / win_verify） ----------------
+disable_uac: true                  # EnableLUA=0 / luafv Start=4
+
+# ---- 1.14 Windows 更新プログラム（win_update / win_verify） ----------------
+disable_auto_update_policy: true   # ローカルGPO「自動更新を構成する」= 無効

@@ -1,0 +1,55 @@
+---
+# ============================================================================
+# <案件名> 全ホスト共通パラメータ（設計書「1.概要」より）
+#
+#   JBCC 標準値（roles/win_standard・各ロールの defaults）との差分だけを書く。
+#   標準と同じ値はここに書かない（どこが案件固有かを見えるようにするため）。
+#   下のコメントは「よく上書きする変数」と標準値。必要な行だけコメントを外す。
+#
+#   ホスト / 用途ごとに変わる値は group_vars/<グループ名>.yml や
+#   host_vars/<ホスト名>/main.yml に書く。
+# ============================================================================
+
+# ---- 1.2 ドメイン参加 -------------------------------------------------------
+# enable_domain_join: false        # true にする場合は下の 2 つが必須
+# ad_domain_name:  ""              # 例: "corp.example.local"
+# ad_netbios_name: ""              # 例: "CORP"
+# ad_domain_ou_path: ""            # 空なら既定の Computers コンテナ
+# domain_dns_servers: []           # 参加前に設定する DNS（空なら DHCP 配布値のまま）
+
+# ---- 1.6 言語設定 -----------------------------------------------------------
+# os_timezone: "Tokyo Standard Time"
+# os_locale:   "ja-JP"
+
+# ---- 1.5 ネットワーク設定 ---------------------------------------------------
+# disable_ipv6: true
+# hosts_entries: []
+
+# ---- 1.7 リモート接続設定 ---------------------------------------------------
+# enable_rdp: true
+# rdp_require_nla: true
+
+# ---- 1.10 ファイアウォール / 1.11 Defender / 1.12 UAC ----------------------
+# firewall_state: disabled         # NSG / セキュリティグループで制御する前提
+# disable_defender_by_policy: true
+# disable_uac: true
+
+# ---- 1.13 タスクスケジューラ ------------------------------------------------
+# enable_scheduled_tasks: true     # 実行ユーザが解決できない環境では false
+
+# ---- 1.14 Windows 更新プログラム -------------------------------------------
+# apply_windows_update: true
+# disable_auto_update_policy: true
+
+# ---- 1.15 サービス設定 ------------------------------------------------------
+# windows_services_config: []      # 例: [{ name: vmictimesync, start_mode: disabled, state: stopped }]
+
+# ---- 4. Windows ログ / 5. 仮想メモリ ---------------------------------------
+# eventlog_config:                 # 標準は 3 ログとも 20480KB
+#   - { name: Application, maximum_size: "20480KB" }
+#   - { name: Security,    maximum_size: "20480KB" }
+#   - { name: System,      maximum_size: "20480KB" }
+# pagefile_configure: false
+
+# ---- クラウド固有 -----------------------------------------------------------
+# azure_move_temp_drive: true      # Azure の一時ディスク（既定 D:）を退避する。Azure 以外は false

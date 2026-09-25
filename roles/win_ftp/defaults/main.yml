@@ -1,5 +1,5 @@
 ---
-# 設計書 1.16「FTP設定」（S-AZR-007 ファイルサーバのみ）
+# 設計書 1.16「FTP設定」（FTP サーバを持つホストのみ案件側で指定する）
 ftp_sites: []
 ftp_log_directory: 'C:\inetpub\logs\LogFiles'
 ftp_log_rollover: "Daily"            # ログファイルロールオーバー = 毎日

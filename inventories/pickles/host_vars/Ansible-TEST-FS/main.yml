@@ -4,7 +4,7 @@
 #   設計書 シート「8.ファイルサーバ」の設定を適用する。
 #   ※設計書のコンピュータ名欄（シート8 3. ｺﾝﾋﾟｭｰﾀ名）はサンプル版でマスク。
 #   ※今回の初期構築ではドメイン参加は行わない
-#     （inventory/group_vars/all/main.yml の enable_domain_join: false）
+#     （inventories/pickles/group_vars/all/main.yml の enable_domain_join: false）
 #
 #   接続先 IP は環境ごとに異なるため、同ディレクトリの connection.yml
 #   （git 管理外／connection.yml.example を複製して作成）に分離している。

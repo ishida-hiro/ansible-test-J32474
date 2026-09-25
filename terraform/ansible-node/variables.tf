@@ -278,7 +278,7 @@ variable "windows_vm_size" {
 variable "windows_computer_name" {
   description = <<-EOT
     Windows のコンピュータ名（NetBIOS 名。15 文字以内）。
-    inventory/test.yml の検証機ホスト名（Ansible-TEST-FS）に合わせている。
+    inventories/pickles/test.yml の検証機ホスト名（Ansible-TEST-FS）に合わせている。
   EOT
   type        = string
   default     = "Ansible-TEST-FS"
@@ -292,7 +292,7 @@ variable "windows_computer_name" {
 variable "windows_admin_username" {
   description = <<-EOT
     Windows のローカル管理者ユーザ名。
-    Ansible の接続ユーザ（inventory/group_vars/all/vault.yml の
+    Ansible の接続ユーザ（inventories/pickles/group_vars/all/vault.yml の
     vault_local_admin_user）と一致させること。
   EOT
   type        = string

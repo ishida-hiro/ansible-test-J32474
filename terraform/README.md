@@ -76,7 +76,7 @@ Windows サーバ**本体**の払い出しは本リポジトリのスコープ�
 に従って払い出す前提。設計書 1.4 / 1.5 の注記を参照）。
 **NSG のみ** `windows-nsg/` で管理します。
 
-ただし **検証用の 1 台**（`inventory/test.yml` の `Ansible-TEST-FS` 相当）は
+ただし **検証用の 1 台**（`inventories/pickles/test.yml` の `Ansible-TEST-FS` 相当）は
 `ansible-node/windows.tf` で払い出せるようにしています（`create_windows_server = true`）。
 WinRM の有効化も `azurerm_virtual_machine_run_command` から
 `scripts/bootstrap_winrm.ps1` が自動実行されるため、

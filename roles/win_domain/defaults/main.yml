@@ -1,10 +1,10 @@
 ---
 # 設計書 1.2「ドメイン参加」
-# false の場合、本ロールは現状確認のみ行い、参加/昇格は実施しない
-enable_domain_join: false
+# enable_domain_join / ad_domain_name は win_verify でも使うため win_standard で定義している
+# 共通の設定値は roles/win_standard/defaults/main.yml を参照（meta の依存で読み込む）
 
-ad_domain_name: "PICKLES-CORP.pickles.co.jp"
-ad_netbios_name: "PICKLES-CORP"
+# 案件ごとに指定する（enable_domain_join: true の場合は必須）
+ad_netbios_name: ""
 ad_domain_ou_path: ""
 
 # DC 昇格モード（dc グループのみ）

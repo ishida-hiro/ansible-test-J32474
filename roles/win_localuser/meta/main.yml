@@ -1,0 +1,4 @@
+---
+# 共通の設定値（JBCC 標準の既定値）を読み込む。win_standard はタスクを持たない。
+dependencies:
+  - role: win_standard

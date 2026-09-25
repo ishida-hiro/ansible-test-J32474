@@ -144,7 +144,7 @@ az ad sp create-for-rbac \
 > `windows_admin_password` は**未設定でかまいません**。空の場合は自動生成され、
 > 出力 `windows_admin_password_generated` から読めます
 > （検証環境向けに、あえてマスクしていません）。
-> その値を `inventory/group_vars/all/vault.yml` の
+> その値を `inventories/pickles/group_vars/all/vault.yml` の
 > `vault_local_admin_password` に設定してください。
 > ユーザ名も `windows_admin_username`（既定 `picklesadmin`）と
 > `vault_local_admin_user` を揃えます。
@@ -197,7 +197,7 @@ nc -vz <windows_public_ip_address> 5986
 インベントリには Windows の **Public IP** を設定します。
 
 ```yaml
-# inventory/test.yml
+# inventories/pickles/test.yml
 Ansible-TEST-FS:
   ansible_host: <windows_public_ip_address>
 ```
@@ -249,11 +249,11 @@ git clone https://github.com/ishida-hiro/ansible-test-J32474.git ~/ansible-windo
 # サーバ側
 cd ~/ansible-windows-build
 ansible --version
-ansible windows -m ansible.windows.win_ping
-ansible-playbook playbooks/site.yml
+ansible windows -i inventories/pickles/test.yml -m ansible.windows.win_ping
+ansible-playbook playbooks/site.yml -i inventories/pickles/test.yml
 ```
 
-> `inventory/group_vars/all/vault.yml`（パスワード）は `.gitignore` 対象で
+> `inventories/pickles/group_vars/all/vault.yml`（パスワード）は `.gitignore` 対象で
 > **リポジトリに含まれません**。サーバ側で `vault.yml.example` から作成してください。
 
 ---

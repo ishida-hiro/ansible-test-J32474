@@ -1,0 +1,26 @@
+---
+# ============================================================================
+# NEW-HOST-01 : <用途>（設計書 シート「<シート名>」）
+#   ホスト固有の値だけを書く。ディレクトリ名はインベントリのホスト名と一致させる。
+#   接続先 IP は同ディレクトリの connection.yml（git 管理外）に書く。
+# ============================================================================
+computer_name:  "NEW-HOST-01"
+# 99_verify.yml の突合せで比較する OS 名。実機の Caption と同じ表記にする
+# （Azure Marketplace イメージは "... Azure Edition" になる点に注意）
+os_version:     "Windows Server 2025 Datacenter"
+server_purpose: "<用途>"
+
+# ---- 1.4 ドライブ構成 -------------------------------------------------------
+# data_disks:
+#   - { disk_number: 2, drive_letter: "D", label: "ボリューム", partition_style: gpt, file_system: ntfs }
+
+# ---- 1.3 ユーザアカウント ---------------------------------------------------
+# local_users:
+#   - name: "<ユーザ名>"
+#     password: "{{ vault_<ユーザ名>_password }}"
+#     groups: ["Administrators", "Remote Desktop Users"]
+#     description: "<用途>"
+#     password_never_expires: true
+
+# ---- 1.9 役割と機能 ---------------------------------------------------------
+# windows_features: []             # 例: [FS-FileServer, FS-Resource-Manager]

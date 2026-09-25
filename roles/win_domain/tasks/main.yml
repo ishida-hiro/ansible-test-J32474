@@ -1,10 +1,20 @@
 ---
 # ============================================================================
 # win_domain : ドメイン参加 / ドメインコントローラ昇格
-#   設計書 1.2「PICKLES-CORP.pickles.co.jp に参加する」
-#   設計書 1.9  No.1,2 = AD / DNS
-#   ※No.3〜6 は OS初期設定およびドメイン参加後にお引渡し（設計書 1.2）
+#   設計書 1.2「ドメイン参加」／ 1.9 役割と機能（AD / DNS）
+#   参加先ドメインは案件インベントリの ad_domain_name / ad_netbios_name で指定する。
 # ============================================================================
+
+- name: ドメイン参加に必要な値が指定されているか確認する
+  ansible.builtin.assert:
+    that:
+      - ad_domain_name | length > 0
+      - ad_netbios_name | length > 0
+    fail_msg: >-
+      enable_domain_join = true ですが ad_domain_name / ad_netbios_name が未指定です。
+      inventories/<案件>/group_vars/all/main.yml で指定してください。
+    quiet: true
+  when: enable_domain_join | bool
 
 - name: ドメイン参加が対象外である旨を通知する
   ansible.builtin.debug:

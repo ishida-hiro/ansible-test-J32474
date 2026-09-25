@@ -271,7 +271,7 @@ resource "azurerm_windows_virtual_machine" "this" {
 #   Azure の Windows VM はディスク番号 0=OS / 1=一時ディスク のため、
 #   最初のデータディスク（LUN 0）が Windows 上で disk_number 2 になる。
 #   一時ディスクが占有する D: は Playbook 側で Z: へ退避する
-#   （inventory/group_vars/all/main.yml の azure_move_temp_drive: true）。
+#   （inventories/pickles/group_vars/all/main.yml の azure_move_temp_drive: true）。
 resource "azurerm_managed_disk" "windows_data" {
   count = local.create_windows && var.windows_data_disk_size_gb > 0 ? 1 : 0
 

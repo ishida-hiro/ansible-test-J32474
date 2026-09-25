@@ -181,7 +181,7 @@ git push -u origin main
 
 | ファイル | 内容 |
 | --- | --- |
-| `inventory/group_vars/all/vault.yml` | Ansible の各種パスワード |
+| `inventories/pickles/group_vars/all/vault.yml` | Ansible の各種パスワード |
 | `terraform/ansible-node/terraform.tfvars` | IP・サブスクリプション ID 等 |
 | `logs/` `evidence/` | 実行ログ・証跡 |
 
@@ -256,7 +256,7 @@ Windows サーバ側は既定値のままで作成されます。変更したい
 | --- | --- | --- | --- |
 | `create_windows_server` | `true` | | Windows サーバ一式を作成する |
 | `windows_vm_size` | `Standard_B2s` | | 検証用の小さめサイズ（2vCPU / 4GB） |
-| `windows_computer_name` | `Ansible-TEST-FS` | | `inventory/test.yml` のホスト名と一致 |
+| `windows_computer_name` | `Ansible-TEST-FS` | | `inventories/pickles/test.yml` のホスト名と一致 |
 | `windows_admin_username` | `picklesadmin` | | `vault_local_admin_user` と揃える |
 | `windows_admin_password` | `""`（自動生成） | | 下の注記を参照 |
 | `windows_data_disk_size_gb` | `32` | | `D:` 相当のデータディスク |
@@ -330,7 +330,7 @@ apply には 10〜15 分程度かかります（Windows VM の作成と WinRM �
 | パブリック IP | `pip-pickles-verify-windows` | Standard / Static / DNS ラベルは `pickles-verify-win-<ランダム>`（`windows` は Azure の予約語のため `win` に短縮） |
 | NIC | `nic-pickles-verify-windows` | |
 | 仮想マシン | `vm-pickles-verify-windows` | Windows Server 2025 Datacenter / `Standard_B2s` |
-| コンピュータ名 | `Ansible-TEST-FS` | `inventory/test.yml` のホスト名と一致 |
+| コンピュータ名 | `Ansible-TEST-FS` | `inventories/pickles/test.yml` のホスト名と一致 |
 | データディスク | `datadisk-pickles-verify-windows` | 32GB。Playbook の `data_disks`（`disk_number: 2` → `D:`）に対応 |
 | Run Command | `winrm-bootstrap` | `scripts/bootstrap_winrm.ps1` を自動実行して WinRM(5986) を有効化 |
 | 自動シャットダウン | — | 毎日 21:00 JST |
@@ -486,8 +486,8 @@ mkdir -p ~/ansible-windows-build/logs
 
 ```bash
 cd ~/ansible-windows-build
-cp inventory/group_vars/all/vault.yml.example inventory/group_vars/all/vault.yml
-vi inventory/group_vars/all/vault.yml
+cp inventories/pickles/group_vars/all/vault.yml.example inventories/pickles/group_vars/all/vault.yml
+vi inventories/pickles/group_vars/all/vault.yml
 ```
 
 | `vault.yml` のキー | 設定する値 | Terraform 側 |
@@ -499,7 +499,7 @@ vi inventory/group_vars/all/vault.yml
 
 ```bash
 # 本番で使う場合は暗号化する
-ansible-vault encrypt inventory/group_vars/all/vault.yml
+ansible-vault encrypt inventories/pickles/group_vars/all/vault.yml
 ```
 
 ### 11.3 接続先を Windows の Public IP に設定する
@@ -508,12 +508,12 @@ ansible-vault encrypt inventory/group_vars/all/vault.yml
 **Windows サーバの Public IP** を設定します。
 
 接続先 IP は VM を作り直すたびに変わる環境固有の値のため、インベントリ本体
-（`inventory/test.yml`）ではなく **git 管理外の `connection.yml`** に置いています。
+（`inventories/pickles/test.yml`）ではなく **git 管理外の `connection.yml`** に置いています。
 `.example` を複製して作成してください。
 
 ```bash
-cp inventory/host_vars/Ansible-TEST-FS/connection.yml{.example,}
-vi inventory/host_vars/Ansible-TEST-FS/connection.yml
+cp inventories/pickles/host_vars/Ansible-TEST-FS/connection.yml{.example,}
+vi inventories/pickles/host_vars/Ansible-TEST-FS/connection.yml
 ```
 
 ```yaml
@@ -537,7 +537,7 @@ ansible --version
 ansible-galaxy collection list | head
 
 # Windows サーバへの疎通
-ansible windows -m ansible.windows.win_ping -i inventory/test.yml
+ansible windows -m ansible.windows.win_ping -i inventories/pickles/test.yml
 ```
 
 成功例:
@@ -631,7 +631,7 @@ make wincheck           # Ansible 実行サーバから WinRM 疎通を確認
 | `nc -vz <Windows IP> 5986` がタイムアウト | Ansible 実行サーバを作り直して Public IP が変わった | 再度 apply して NSG を更新する（同一構成内なら自動追従する） |
 | `win_ping` が `Connection refused` | WinRM 未有効化 | Run Command が失敗している。Azure Portal の VM → 「実行コマンド」で `bootstrap_winrm.ps1` を再実行する（手順 9） |
 | `win_ping` が `the specified credentials were rejected` | `vault.yml` の値が Terraform 側と不一致 | `windows_admin_password_generated` の値を `vault_local_admin_password` に設定する（手順 11.2） |
-| `win_ping` が `certificate verify failed` | 証明書検証が有効 | `inventory/group_vars/windows.yml` の `ansible_winrm_server_cert_validation: ignore` を確認する |
+| `win_ping` が `certificate verify failed` | 証明書検証が有効 | `inventories/pickles/group_vars/windows.yml` の `ansible_winrm_server_cert_validation: ignore` を確認する |
 | `win_ping` で名前解決に失敗する | `connection.yml` が未作成、または `ansible_host` が private IP のまま | `.example` を複製し Windows の **Public IP** を設定する（手順 11.3） |
 
 ### cloud-init セットアップが失敗した場合の復旧

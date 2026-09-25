@@ -1,2 +1,26 @@
 ---
 computer_name: "{{ inventory_hostname }}"
+
+# os_timezone / os_locale は win_verify でも使うため win_standard で定義している
+# 共通の設定値は roles/win_standard/defaults/main.yml を参照（meta の依存で読み込む）
+
+# ---- 1.6 言語設定（日本語） -------------------------------------------------
+os_geo_location_id: 122            # 122 = Japan
+os_copy_settings_to_default: true  # 既定ユーザ/ようこそ画面へ複製
+install_ja_language_pack: false    # 英語イメージから構築する場合のみ true
+
+# ---- 3. ローカルサーバ 追加設定（詳細シート 3.ｻｰﾊﾞｰ ﾏﾈｰｼﾞｬｰ 相当） -----------
+disable_ie_esc: true               # IE セキュリティ強化の構成 Administrators/Users = オフ
+disable_telemetry_ui: true         # 診断データの送信 = オフ
+
+# ---- 4. Windows ログ --------------------------------------------------------
+eventlog_config:
+  - { name: Application, maximum_size: "20480KB" }
+  - { name: Security,    maximum_size: "20480KB" }
+  - { name: System,      maximum_size: "20480KB" }
+
+# ---- 5. システムのプロパティ（仮想メモリ） ----------------------------------
+# 既定では変更しない。true にする場合は pagefile_drive / pagefile_initial_size /
+# pagefile_maximum_size / pagefile_system_managed を案件側で指定する。
+pagefile_configure: false
+pagefile_automatic_managed: true
