@@ -1,0 +1,18 @@
+---
+# ============================================================================
+# AA様 認証情報テンプレート
+#   1) 本ファイルを vault.yml にコピーして値を設定
+#   2) ansible-vault encrypt inventories/aa/group_vars/all/vault.yml
+#   ※ 平文のままリポジトリへコミットしないこと（vault.yml は .gitignore 対象）
+# ============================================================================
+# 構築中の接続ユーザ（Terraform が作成した VM の管理者。group_vars/windows.yml が参照する）
+vault_local_admin_user:      "<VM 作成時の管理者名>"
+vault_local_admin_password:  "<VM 作成時の管理者パスワード>"
+
+# ドメイン参加用（enable_domain_join: true の場合）
+vault_domain_admin_user:     "<NETBIOS名>\\Administrator"
+vault_domain_admin_password: "<jbcc.local のドメイン管理者パスワード>"
+vault_safe_mode_password:    "<DSRM パスワード（DC 昇格時のみ）>"
+
+# ローカルユーザ（設計書 1.3 / シート4 6.ﾛｰｶﾙﾕｰｻﾞｰ）
+vault_jbccadmin_password:    "<jbcc-admin のパスワード>"

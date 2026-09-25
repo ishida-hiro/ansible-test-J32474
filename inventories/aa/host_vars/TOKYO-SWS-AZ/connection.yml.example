@@ -1,0 +1,12 @@
+---
+# ============================================================================
+# TOKYO-SWS-AZ : 接続先（環境固有・git 管理外）
+#   このファイルを connection.yml として複製し、実機の IP に書き換えて使う。
+#
+#     cp inventories/aa/host_vars/TOKYO-SWS-AZ/connection.yml.example \
+#        inventories/aa/host_vars/TOKYO-SWS-AZ/connection.yml
+#
+#   接続先 IP は VM を作り直すたびに変わるため、インベントリ本体（hosts.yml）
+#   ではなくここに置いて git 管理から外している。
+# ============================================================================
+ansible_host: 203.0.113.20

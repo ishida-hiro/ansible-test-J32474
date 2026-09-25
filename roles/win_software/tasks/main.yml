@@ -1,0 +1,61 @@
+---
+# ============================================================================
+# win_software : ソフトウェアの導入
+#   設計書 詳細シート「9.導入ｿﾌﾄｳｪｱ」
+#     導入するソフトは案件インベントリの software_packages で指定する（空なら何もしない）
+#     導入済みかどうかは「プログラムと機能」の表示名で判定し、導入済みなら何もしない
+#   導入結果は 99_verify.yml の証跡（Software）で確認する
+# ============================================================================
+
+- name: 今回対象外のソフトを除外して導入対象を確定する
+  ansible.builtin.set_fact:
+    software_target: "{{ software_packages | rejectattr('skip', 'defined') | list }}"
+    software_skipped: "{{ software_packages | selectattr('skip', 'defined') | list }}"
+
+- name: 今回対象外のソフトを表示する
+  ansible.builtin.debug:
+    msg: "【対象外】{{ item.name }} : {{ item.skip_reason | default('理由未記載') }}"
+  loop: "{{ software_skipped }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: 導入済みソフトの表示名を取得する
+  ansible.windows.win_powershell:
+    script: |
+      $Ansible.Changed = $false
+      @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' `
+          -ErrorAction SilentlyContinue |
+        Where-Object DisplayName |
+        ForEach-Object { $_.DisplayName } | Sort-Object -Unique)
+  register: r_installed
+  changed_when: false
+  when: software_target | length > 0
+
+- name: 未導入のソフトを導入する
+  ansible.windows.win_package:
+    path: "{{ item.path }}"
+    arguments: "{{ item.arguments | default(omit) }}"
+    expected_return_code: "{{ item.expected_return_code | default([0, 3010]) }}"
+    state: present
+  loop: "{{ software_target }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: r_installed.output | select('search', item.display_name) | list | length == 0
+  register: r_software
+
+- name: 導入済みのため何もしなかったソフトを表示する
+  ansible.builtin.debug:
+    msg: "【導入済み】{{ item.name }} : {{ r_installed.output | select('search', item.display_name) | join(', ') }}"
+  loop: "{{ software_target }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - software_target | length > 0
+    - r_installed.output | select('search', item.display_name) | list | length > 0
+
+- name: 再起動が必要な場合は再起動する
+  ansible.windows.win_reboot:
+    reboot_timeout: 1800
+    post_reboot_delay: 30
+  when: r_software.results | default([]) | selectattr('reboot_required', 'defined') | selectattr('reboot_required') | list | length > 0

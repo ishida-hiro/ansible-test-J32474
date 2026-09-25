@@ -1,0 +1,70 @@
+---
+# ============================================================================
+# TOKYO-SWS-AZ : Smart Workstream（設計書 概要 No.3 / シート「4.Smart Workstream」）
+#   ホスト固有の値だけを書く。ディレクトリ名はインベントリのホスト名と一致させる。
+#   接続先 IP は同ディレクトリの connection.yml（git 管理外）に書く。
+#   ※設計書 1.2: OS 初期設定およびドメイン参加後にお引渡し
+# ============================================================================
+computer_name:  "TOKYO-SWS-AZ"
+# 99_verify.yml の突合せで比較する OS 名。実機の Caption と同じ表記にする。
+# 設計書（概要 1.1 / シート4 2.OS情報）の値は "Windows Server 2025 Datacenter"。
+# 検証環境は Azure Marketplace イメージのため "... Azure Edition" になる。
+# ※シート4 3. のﾌﾟﾛﾀﾞｸﾄID欄・14.適用ﾊﾟｯﾁ一覧は Windows Server 2022（ビルド 20348）の
+#   記載になっており、設計書内で版数が食い違っている（検証記録「課題」に記載）。
+os_version:     "Windows Server 2025 Datacenter Azure Edition"
+server_purpose: "Smart Workstream"
+
+# ---- 1.4 ドライブ構成 / シート4 8.ﾃﾞｨｽｸの管理 -------------------------------
+#   C: Windows   109.42GB  GPT / NTFS  システム領域（Azure 側で決まる）
+#   D: ボリューム 127.98GB  GPT / NTFS  データ領域
+data_disks:
+  - { disk_number: 2, drive_letter: "D", label: "ボリューム", partition_style: gpt, file_system: ntfs }
+
+# ---- 1.3 ユーザアカウント / シート4 6.ﾛｰｶﾙﾕｰｻﾞｰ・7.ﾛｰｶﾙｸﾞﾙｰﾌﾟ -------------------
+# 概要 1.7: GPO で RDP ログオンが Remote Desktop Users に限られるため、
+#           ローカル管理者を Remote Desktop Users にも所属させる。
+local_users:
+  - name: "jbcc-admin"
+    password: "{{ vault_jbccadmin_password }}"
+    groups: ["Administrators", "Remote Desktop Users"]
+    description: "ローカル管理者"
+    password_never_expires: true
+
+# ---- 1.9 役割と機能 / シート4 12.役割と機能の追加 ---------------------------
+# ■ かつ「（ﾃﾞﾌｫﾙﾄ）」注記が無い項目だけを書く。
+# win_features は子の機能を自動で入れないため、親と子を 1 つずつ書く。
+# ※Windows Server 2025 のイメージでは 3 つとも InstallState = Removed
+#   （インストール用ファイルが除去済みで、Windows Update から取得する）。
+windows_features:
+  - FS-SMB1                        # SMB 1.0/CIFS File Sharing Support
+  - FS-SMB1-CLIENT                 #   SMB 1.0/CIFS Client
+  - FS-SMB1-SERVER                 #   SMB 1.0/CIFS Server
+
+# ---- シート4 9.導入ｿﾌﾄｳｪｱ ---------------------------------------------------
+software_packages:
+  - name: "Microsoft Visual C++ 2015-2022 Redistributable (x64)"
+    display_name: '^Microsoft Visual C\+\+ 2015-2022 Redistributable \(x64\)'
+    # Microsoft 公式の最新版の配布 URL。設計書の版数（14.42.34438.0）とは異なる版が入る
+    path: "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+    arguments: "/install /quiet /norestart"
+    expected_return_code: [0, 1638, 3010]   # 1638 = より新しい版が導入済み
+  - name: "Microsoft .NET 6.0 - Windows Server Hosting"
+    display_name: '^Microsoft \.NET 6\.0\.\d+ - Windows Server Hosting'
+    path: ""
+    arguments: "/install /quiet /norestart"
+    skip: true
+    skip_reason: >-
+      インストーラの入手先が未定（設計書の版数 6.0.45 の配布元を確認する）。
+      .NET 6 は Microsoft のサポートが終了しているため、導入の要否もお客様に確認する
+  - name: "Microsoft Edge"
+    display_name: '^Microsoft Edge$'
+    path: ""
+    skip: true
+    skip_reason: "Windows Server 2025 には標準で含まれる想定のため導入しない。証跡の Software で確認する"
+
+# ---- 1.8 時刻同期設定 -------------------------------------------------------
+# 設計書: ドメイン参加サーバのためドメインコントローラと自動同期（設定不要）。
+# 検証環境には AD が無く同期先が無いため、シート4 3.「ｲﾝﾀｰﾈｯﾄ時刻」の
+# time.windows.com と手動同期させる（P様の検証機と同じ扱い。docs/03 A-4）。
+is_pdc_emulator: true
+ntp_servers: "time.windows.com,0x8"
