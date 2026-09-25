@@ -161,5 +161,6 @@ def build_03(src, dst):
 
     wb.save(dst); print('wrote', dst, f'({len(items)} items)')
 
-build_02('docs/02_ロール一覧.md', 'docs/02_ロール一覧.xlsx')
-build_03('docs/03_要確認事項.md', 'docs/03_要確認事項.xlsx')
+if __name__ == '__main__':
+    build_02('docs/02_ロール一覧.md', 'docs/02_ロール一覧.xlsx')
+    build_03('docs/03_要確認事項.md', 'docs/03_要確認事項.xlsx')
