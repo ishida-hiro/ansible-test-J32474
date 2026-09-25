@@ -53,7 +53,13 @@ resource "azurerm_linux_virtual_machine" "this" {
 
   lifecycle {
     # イメージの version = "latest" による意図しない再作成を防ぐ
-    ignore_changes = [source_image_reference[0].version]
+    #
+    # custom_data（cloud-init）は初回起動時にしか使われないが、変更すると VM の再作成になる。
+    # テンプレートや ansible_core_version などの変数を直しただけで実行サーバ
+    # （vault.yml / connection.yml / venv を持つ）が作り直されないよう、作成後の差分は無視する。
+    # 新しい cloud-init で作り直したいときは、置き換え対象に明示して実行する
+    #   （terraform apply -replace=azurerm_linux_virtual_machine.this）。
+    ignore_changes = [source_image_reference[0].version, custom_data]
 
     precondition {
       condition     = local.ssh_public_key != ""
